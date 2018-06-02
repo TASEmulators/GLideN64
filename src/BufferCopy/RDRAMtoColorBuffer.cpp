@@ -17,7 +17,8 @@ using namespace graphics;
 
 RDRAMtoColorBuffer::RDRAMtoColorBuffer()
 	: m_pCurBuffer(nullptr)
-	, m_pTexture(nullptr) {
+	, m_pTexture(nullptr)
+	, m_pbuf(nullptr) {
 }
 
 RDRAMtoColorBuffer & RDRAMtoColorBuffer::get()
@@ -43,7 +44,6 @@ void RDRAMtoColorBuffer::init()
 	m_pTexture->realWidth = 640;
 	m_pTexture->realHeight = 580;
 	m_pTexture->textureBytes = m_pTexture->realWidth * m_pTexture->realHeight * fbTexFormats.colorFormatBytes;
-	textureCache().addFrameBufferTextureSize(m_pTexture->textureBytes);
 
 	Context::InitTextureParams initParams;
 	initParams.handle = m_pTexture->name;
@@ -62,7 +62,7 @@ void RDRAMtoColorBuffer::init()
 	setParams.magFilter = textureParameters::FILTER_LINEAR;
 	gfxContext.setTextureParameters(setParams);
 
-	m_pbuf.reset(gfxContext.createPixelWriteBuffer(m_pTexture->textureBytes));
+	m_pbuf = (u8*)malloc(m_pTexture->textureBytes);
 }
 
 void RDRAMtoColorBuffer::destroy()
@@ -71,7 +71,7 @@ void RDRAMtoColorBuffer::destroy()
 		textureCache().removeFrameBufferTexture(m_pTexture);
 		m_pTexture = nullptr;
 	}
-	m_pbuf.reset();
+	free(m_pbuf);
 }
 
 void RDRAMtoColorBuffer::addAddress(u32 _address, u32 _size)
@@ -207,42 +207,36 @@ void RDRAMtoColorBuffer::copyFromRDRAM(u32 _address, bool _bCFB)
 
 	m_pTexture->width = width;
 	m_pTexture->height = height;
-	const u32 gpuDataSize = width*height * fbTexFormats.colorFormatBytes;
 
-	PixelBufferBinder<PixelWriteBuffer> binder(m_pbuf.get());
-	u8* ptr = (u8*)m_pbuf->getWriteBuffer(gpuDataSize);
-	if (ptr == nullptr)
-		return;
-
-	u32 * dst = nullptr;
+	u32 * pDst = nullptr;
 	std::unique_ptr<u8[]> dstData;
 
 	//If not using float, the initial coversion will already be correct
 	if (fbTexFormats.colorType == datatype::FLOAT) {
 		const u32 initialDataSize = width*height * 4;
 		dstData = std::unique_ptr<u8[]>(new u8[initialDataSize]);
-		dst = reinterpret_cast<u32*>(dstData.get());
+		pDst = reinterpret_cast<u32*>(dstData.get());
 	} else {
-		dst = reinterpret_cast<u32*>(ptr);
+		pDst = reinterpret_cast<u32*>(m_pbuf);
 	}
 
 	bool bCopy;
 	if (m_vecAddress.empty()) {
 		if (m_pCurBuffer->m_size == G_IM_SIZ_16b)
-			bCopy = _copyBufferFromRdram<u16>(address, dst, RGBA16ToABGR32, 1, x0, y0, width, height, _bCFB);
+			bCopy = _copyBufferFromRdram<u16>(address, pDst, RGBA16ToABGR32, 1, x0, y0, width, height, _bCFB);
 		else
-			bCopy = _copyBufferFromRdram<u32>(address, dst, RGBA32ToABGR32, 0, x0, y0, width, height, _bCFB);
+			bCopy = _copyBufferFromRdram<u32>(address, pDst, RGBA32ToABGR32, 0, x0, y0, width, height, _bCFB);
 	}
 	else {
 		if (m_pCurBuffer->m_size == G_IM_SIZ_16b)
-			bCopy = _copyPixelsFromRdram<u16>(address, m_vecAddress, dst, RGBA16ToABGR32, 1, width, height, _bCFB);
+			bCopy = _copyPixelsFromRdram<u16>(address, m_vecAddress, pDst, RGBA16ToABGR32, 1, width, height, _bCFB);
 		else
-			bCopy = _copyPixelsFromRdram<u32>(address, m_vecAddress, dst, RGBA32ToABGR32, 0, width, height, _bCFB);
+			bCopy = _copyPixelsFromRdram<u32>(address, m_vecAddress, pDst, RGBA32ToABGR32, 0, width, height, _bCFB);
 	}
 
 	//Convert integer format to float
 	if (fbTexFormats.colorType == datatype::FLOAT) {
-		f32* floatData = reinterpret_cast<f32*>(ptr);
+		f32* floatData = reinterpret_cast<f32*>(m_pbuf);
 		u8* byteData = dstData.get();
 		const u32 widthPixels = width*4;
 		for (unsigned int heightIndex = 0; heightIndex < height; ++heightIndex) {
@@ -263,8 +257,6 @@ void RDRAMtoColorBuffer::copyFromRDRAM(u32 _address, bool _bCFB)
 		}
 	}
 
-	m_pbuf->closeWriteBuffer();
-
 	if (!bCopy)
 		return;
 
@@ -281,7 +273,7 @@ void RDRAMtoColorBuffer::copyFromRDRAM(u32 _address, bool _bCFB)
 	updateParams.height = height;
 	updateParams.format = fbTexFormats.colorFormat;
 	updateParams.dataType = fbTexFormats.colorType;
-	updateParams.data = m_pbuf->getData();
+	updateParams.data = m_pbuf;
 	gfxContext.update2DTexture(updateParams);
 
 	m_pTexture->scaleS = 1.0f / (float)m_pTexture->realWidth;

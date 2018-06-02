@@ -229,15 +229,15 @@ public:
 			std::stringstream ss;
 			ss << "#version " << Utils::to_string(_glinfo.majorVersion) << Utils::to_string(_glinfo.minorVersion) << "0 es " << std::endl;
 			ss << "# define IN in" << std::endl << "# define OUT out" << std::endl;
+			if (_glinfo.noPerspective) {
+				ss << "#extension GL_NV_shader_noperspective_interpolation : enable" << std::endl
+					<< "noperspective OUT highp float vZCoord;" << std::endl << "uniform lowp int uClampMode;" << std::endl;
+			}
 			m_part = ss.str();
 		}
 		else {
 			std::stringstream ss;
 			ss << "#version " << Utils::to_string(_glinfo.majorVersion) << Utils::to_string(_glinfo.minorVersion) << "0 core " << std::endl;
-			if (_glinfo.imageTextures && _glinfo.majorVersion * 10 + _glinfo.minorVersion < 42) {
-				ss << "#extension GL_ARB_shader_image_load_store : enable" << std::endl
-					<< "#extension GL_ARB_shading_language_420pack : enable" << std::endl;
-			}
 			ss << "# define IN in" << std::endl << "# define OUT out" << std::endl;
 			m_part = ss.str();
 		}
@@ -316,14 +316,6 @@ public:
 			"      vShadeColor.rgb = vec3(fp);								\n"
 			"  }															\n"
 			;
-		if (!_glinfo.isGLESX) {
-			m_part +=
-				"  gl_ClipDistance[0] = gl_Position.w - gl_Position.z;			\n"
-				;
-		}
-		m_part +=
-			"} \n"
-		;
 	}
 };
 
@@ -374,14 +366,6 @@ public:
 			"      vShadeColor.rgb = vec3(fp);								\n"
 			"  }															\n"
 			;
-		if (!_glinfo.isGLESX) {
-			m_part +=
-				"  gl_ClipDistance[0] = gl_Position.w - gl_Position.z;			\n"
-				;
-		}
-		m_part +=
-			"} \n"
-			;
 	}
 };
 
@@ -405,14 +389,6 @@ public:
 			"  vShadeColor = uRectColor;						\n"
 			"  vTexCoord0 = aTexCoord0;							\n"
 			"  vTexCoord1 = aTexCoord1;							\n"
-		;
-		if (!_glinfo.isGLESX) {
-			m_part +=
-				"  gl_ClipDistance[0] = gl_Position.w - gl_Position.z;			\n"
-				;
-		}
-		m_part +=
-			"} \n"
 			;
 	}
 };
@@ -432,10 +408,24 @@ public:
 			"  gl_Position = aRectPosition;						\n"
 			"  vShadeColor = uRectColor;						\n"
 			;
+	}
+};
+
+class VertexShaderEnd : public ShaderPart
+{
+public:
+	VertexShaderEnd(const opengl::GLInfo & _glinfo)
+	{
 		if (!_glinfo.isGLESX) {
-			m_part +=
-				"  gl_ClipDistance[0] = gl_Position.w - gl_Position.z;			\n"
+			m_part =
+				"  gl_ClipDistance[0] = gl_Position.w - gl_Position.z;	\n"
 				;
+		} else if (config.generalEmulation.enableFragmentDepthWrite != 0 && _glinfo.noPerspective) {
+				m_part =
+					"  vZCoord = gl_Position.z / gl_Position.w;	\n"
+					"  if (uClampMode > 0)	\n"
+					"    gl_Position.z = 0.0;	\n"
+					;
 		}
 		m_part +=
 			"} \n"
@@ -467,6 +457,15 @@ public:
 		} else if (_glinfo.isGLESX) {
 			std::stringstream ss;
 			ss << "#version " << Utils::to_string(_glinfo.majorVersion) << Utils::to_string(_glinfo.minorVersion) << "0 es " << std::endl;
+			if (_glinfo.noPerspective)
+				ss << "#extension GL_NV_shader_noperspective_interpolation : enable" << std::endl;
+			if (config.frameBufferEmulation.N64DepthCompare != 0) {
+				if (_glinfo.imageTextures && _glinfo.fragment_interlockNV) {
+					ss << "#extension GL_NV_fragment_shader_interlock : enable" << std::endl
+						<< "layout(pixel_interlock_ordered) in;" << std::endl;
+				} else if (_glinfo.ext_fetch)
+					ss << "#extension GL_EXT_shader_framebuffer_fetch : enable" << std::endl;
+			}
 			ss << "# define IN in" << std::endl
 				<< "# define OUT out" << std::endl
 				<< "# define texture2D texture" << std::endl;
@@ -474,9 +473,22 @@ public:
 		} else {
 			std::stringstream ss;
 			ss << "#version " << Utils::to_string(_glinfo.majorVersion) << Utils::to_string(_glinfo.minorVersion) << "0 core " << std::endl;
-			if (_glinfo.imageTextures && _glinfo.majorVersion * 10 + _glinfo.minorVersion < 42) {
-				ss << "#extension GL_ARB_shader_image_load_store : enable" << std::endl
-					<< "#extension GL_ARB_shading_language_420pack : enable" << std::endl;
+			if (config.frameBufferEmulation.N64DepthCompare != 0) {
+				if (_glinfo.imageTextures) {
+					if (_glinfo.majorVersion * 10 + _glinfo.minorVersion < 42) {
+						ss << "#extension GL_ARB_shader_image_load_store : enable" << std::endl
+							<< "#extension GL_ARB_shading_language_420pack : enable" << std::endl;
+					}
+					if (_glinfo.fragment_interlock)
+						ss << "#extension GL_ARB_fragment_shader_interlock : enable" << std::endl
+							<< "layout(pixel_interlock_ordered) in;" << std::endl;
+					else if (_glinfo.fragment_interlockNV)
+						ss << "#extension GL_NV_fragment_shader_interlock : enable" << std::endl
+							<< "layout(pixel_interlock_ordered) in;" << std::endl;
+					else if (_glinfo.fragment_ordering)
+						ss << "#extension GL_INTEL_fragment_shader_ordering : enable" << std::endl;
+				} else if (_glinfo.ext_fetch)
+					ss << "#extension GL_EXT_shader_framebuffer_fetch : enable" << std::endl;
 			}
 			ss << "# define IN in" << std::endl
 				<< "# define OUT out" << std::endl
@@ -526,14 +538,6 @@ public:
 			"  } else clampedColor.rgb = muxPM[uBlendMux1[0]].rgb;	\n"
 			;
 #endif
-	}
-
-	void write(std::stringstream & shader) const override
-	{
-		if (g_cycleType == G_CYC_2CYCLE)
-			shader << "  muxPM[1] = clampedColor;	\n";
-
-		ShaderPart::write(shader);
 	}
 };
 
@@ -791,8 +795,19 @@ public:
 			"IN highp vec2 vTexCoord1;\n"
 			"IN mediump vec2 vLodTexCoord;\n"
 			"IN lowp float vNumLights;	\n"
-			"OUT lowp vec4 fragColor;	\n"
-		;
+			;
+
+		if (config.frameBufferEmulation.N64DepthCompare != 0 && _glinfo.ext_fetch) {
+			m_part +=
+				"layout(location = 0) OUT lowp vec4 fragColor;	\n"
+				"layout(location = 1) inout highp vec4 depthZ;	\n"
+				"layout(location = 2) inout highp vec4 depthDeltaZ;	\n"
+				;
+		} else {
+			m_part +=
+				"OUT lowp vec4 fragColor;	\n"
+				;
+		}
 	}
 };
 
@@ -856,7 +871,19 @@ public:
 		m_part +=
 			"IN lowp vec4 vShadeColor;	\n"
 			"IN lowp float vNumLights;	\n"
-			"OUT lowp vec4 fragColor;	\n";
+			;
+
+		if (config.frameBufferEmulation.N64DepthCompare != 0 && _glinfo.ext_fetch) {
+			m_part +=
+				"layout(location = 0) OUT lowp vec4 fragColor;	\n"
+				"layout(location = 1) inout highp vec4 depthZ;	\n"
+				"layout(location = 2) inout highp vec4 depthDeltaZ;	\n"
+				;
+		} else {
+			m_part +=
+				"OUT lowp vec4 fragColor;	\n"
+				;
+		}
 	}
 };
 
@@ -878,8 +905,16 @@ public:
 	{
 		if (!_glinfo.isGLES2) {
 			m_part =
-				"void writeDepth();\n";
+				"highp float writeDepth();\n";
 			;
+			if (_glinfo.isGLESX &&  _glinfo.noPerspective) {
+				m_part =
+					"noperspective IN highp float vZCoord;	\n"
+					"uniform lowp float uPolygonOffset;	\n"
+					"uniform lowp int uClampMode;	\n"
+					+ m_part
+				;
+			}
 		}
 	}
 };
@@ -948,13 +983,16 @@ public:
 	ShaderFragmentHeaderDepthCompare(const opengl::GLInfo & _glinfo)
 	{
 		if (config.frameBufferEmulation.N64DepthCompare != 0) {
-
-			m_part +=
-				"layout(binding = 2, r32f) highp uniform coherent image2D uDepthImageZ;		\n"
-				"layout(binding = 3, r32f) highp uniform coherent image2D uDepthImageDeltaZ;\n"
-				"bool depth_compare();\n"
-				"bool depth_render(highp float Z);\n";
-			;
+			m_part =
+				"bool depth_compare(highp float curZ);	\n"
+				"bool depth_render(highp float Z, highp float curZ);	\n"
+				;
+			if (_glinfo.imageTextures) {
+				m_part +=
+					"layout(binding = 2, r32f) highp uniform restrict image2D uDepthImageZ;		\n"
+					"layout(binding = 3, r32f) highp uniform restrict image2D uDepthImageDeltaZ;	\n"
+					;
+			}
 		}
 	}
 };
@@ -1133,7 +1171,7 @@ public:
 		;
 		if (!_glinfo.isGLES2) {
 			m_part +=
-				"  writeDepth(); \n"
+				"  highp float fragDepth = writeDepth();	\n"
 			;
 		}
 		m_part +=
@@ -1155,7 +1193,7 @@ public:
 		;
 		if (!_glinfo.isGLES2) {
 			m_part +=
-				"  writeDepth(); \n"
+				"  highp float fragDepth = writeDepth(); \n"
 			;
 		}
 		m_part +=
@@ -1324,10 +1362,31 @@ public:
 	ShaderFragmentCallN64Depth(const opengl::GLInfo & _glinfo)
 	{
 		if (config.frameBufferEmulation.N64DepthCompare != 0) {
-			m_part =
-				"  if (uRenderTarget != 0) { if (!depth_render(fragColor.r)) discard; } \n"
-				"  else if (!depth_compare()) discard; \n"
-			;
+			m_part = "  bool should_discard = false;	\n";
+
+			if (_glinfo.imageTextures) {
+				if (_glinfo.fragment_interlock)
+					m_part += "  beginInvocationInterlockARB();	\n";
+				else if (_glinfo.fragment_interlockNV)
+					m_part += "  beginInvocationInterlockNV();	\n";
+				else if (_glinfo.fragment_ordering)
+					m_part += "  beginFragmentShaderOrderingINTEL();	\n";
+			}
+
+			m_part +=
+				"  if (uRenderTarget != 0) { if (!depth_render(fragColor.r, fragDepth)) should_discard = true; } \n"
+				"  else if (!depth_compare(fragDepth)) should_discard = true; \n"
+				;
+
+			if (_glinfo.imageTextures) {
+				if (_glinfo.fragment_interlock)
+					m_part += "  endInvocationInterlockARB();	\n";
+				else if (_glinfo.fragment_interlockNV)
+					m_part += "  endInvocationInterlockNV();	\n";
+			}
+
+			m_part += "  if (should_discard) discard;	\n";
+
 		}
 	}
 };
@@ -1342,10 +1401,11 @@ public:
 				"  if (uRenderTarget != 0) {					\n"
 				"    if (uRenderTarget > 1) {					\n"
 				"      ivec2 coord = ivec2(gl_FragCoord.xy);	\n"
-				"      if (gl_FragDepth >= texelFetch(uDepthTex, coord, 0).r) discard;	\n"
+				"      if (fragDepth >= texelFetch(uDepthTex, coord, 0).r) discard;	\n"
 				"    }											\n"
-				"    gl_FragDepth = fragColor.r;				\n"
+				"    fragDepth = fragColor.r;				\n"
 				"  }											\n"
+				"  gl_FragDepth = fragDepth;	\n"
 			;
 		}
 	}
@@ -1379,7 +1439,7 @@ public:
 			m_part =
 				"lowp float snoise()	\n"
 				"{						\n"
-				"  return 1.0;			\n"
+				"  return 0.5;			\n"
 				"}						\n"
 				;
 		} else {
@@ -1445,32 +1505,55 @@ public:
 				config.frameBufferEmulation.N64DepthCompare == 0) {
 				// Dummy write depth
 				m_part =
-					"void writeDepth()	    \n"
+					"highp float writeDepth()	    \n"
 					"{						\n"
+					"  return 0.0;	\n"
 					"}						\n"
 				;
 			} else {
-				if (_glinfo.imageTextures && (config.generalEmulation.hacks & hack_RE2) != 0) {
+				if ((config.generalEmulation.hacks & hack_RE2) != 0) {
 					m_part =
-						"layout(binding = 0, r32ui) highp uniform readonly uimage2D uZlutImage;\n"
-						"void writeDepth()						        													\n"
+						"uniform lowp usampler2D uZlutImage;\n"
+						"highp float writeDepth()						        													\n"
 						"{																									\n"
-						"  gl_FragDepth = clamp((gl_FragCoord.z * 2.0 - 1.0) * uDepthScale.s + uDepthScale.t, 0.0, 1.0);	\n"
-						"  highp int iZ = gl_FragDepth > 0.999 ? 262143 : int(floor(gl_FragDepth * 262143.0));				\n"
+						;
+					if (_glinfo.isGLESX && _glinfo.noPerspective) {
+						m_part +=
+							"  if (uClampMode == 1 && (vZCoord > 1.0)) discard;	\n"
+							"  highp float FragDepth = clamp((vZCoord - uPolygonOffset) * uDepthScale.s + uDepthScale.t, 0.0, 1.0);	\n"
+							;
+					} else {
+						m_part +=
+							"  highp float FragDepth = clamp((gl_FragCoord.z * 2.0 - 1.0) * uDepthScale.s + uDepthScale.t, 0.0, 1.0);	\n"
+						;
+					}
+					m_part +=
+						"  highp int iZ = FragDepth > 0.999 ? 262143 : int(floor(FragDepth * 262143.0));				\n"
 						"  mediump int y0 = clamp(iZ/512, 0, 511);															\n"
 						"  mediump int x0 = iZ - 512*y0;																	\n"
-						"  highp uint iN64z = imageLoad(uZlutImage,ivec2(x0,y0)).r;											\n"
-						"  gl_FragDepth = clamp(float(iN64z)/65532.0, 0.0, 1.0);											\n"
+						"  highp uint iN64z = texelFetch(uZlutImage,ivec2(x0,y0), 0).r;											\n"
+						"  return clamp(float(iN64z)/65532.0, 0.0, 1.0);											\n"
 						"}																									\n"
 						;
 				} else {
-					m_part =
-						"void writeDepth()						        										\n"
-						"{																						\n"
-						"  highp float depth = uDepthSource == 0 ? (gl_FragCoord.z * 2.0 - 1.0) : uPrimDepth;	\n"
-						"  gl_FragDepth = clamp(depth * uDepthScale.s + uDepthScale.t, 0.0, 1.0);				\n"
-						"}																						\n"
-						;
+					if (_glinfo.isGLESX && _glinfo.noPerspective) {
+						 m_part =
+							"highp float writeDepth()                                                                                                                                      \n"
+							"{                                                                                                                                                                              \n"
+							"  if (uClampMode == 1 && (vZCoord > 1.0)) discard;     \n"
+							"  highp float depth = uDepthSource == 0 ? (vZCoord - uPolygonOffset) : uPrimDepth;     \n"
+							"  return clamp(depth * uDepthScale.s + uDepthScale.t, 0.0, 1.0);                               \n"
+							"}                                                                                                                                                                              \n"
+							;
+					} else {
+						m_part =
+							"highp float writeDepth()						        										\n"
+							"{																						\n"
+							"  highp float depth = uDepthSource == 0 ? (gl_FragCoord.z * 2.0 - 1.0) : uPrimDepth;	\n"
+							"  return clamp(depth * uDepthScale.s + uDepthScale.t, 0.0, 1.0);				\n"
+							"}																						\n"
+							;
+					}
 				}
 			}
 		}
@@ -1868,18 +1951,23 @@ public:
 				"uniform lowp int uDepthMode;							\n"
 				"uniform lowp int uEnableDepthUpdate;					\n"
 				"uniform mediump float uDeltaZ;							\n"
-				"bool depth_compare()									\n"
+				"bool depth_compare(highp float curZ)									\n"
 				"{														\n"
-				"  ivec2 coord = ivec2(gl_FragCoord.xy);				\n"
-				"  highp vec4 depthZ = imageLoad(uDepthImageZ,coord);	\n"
-				"  highp vec4 depthDeltaZ = imageLoad(uDepthImageDeltaZ,coord);\n"
+				;
+			if (_glinfo.imageTextures) {
+				m_part +=
+					"  ivec2 coord = ivec2(gl_FragCoord.xy);				\n"
+					"  highp vec4 depthZ = imageLoad(uDepthImageZ,coord);	\n"
+					"  highp vec4 depthDeltaZ = imageLoad(uDepthImageDeltaZ,coord);\n"
+					;
+			}
+			m_part +=
 				"  highp float bufZ = depthZ.r;							\n"
-				"  highp float curZ = gl_FragDepth;						\n"
 				"  highp float dz, dzMin;								\n"
 				"  if (uDepthSource == 1) {								\n"
 				"     dzMin = dz = uDeltaZ;								\n"
 				"  } else {												\n"
-				"    dz = 4.0*fwidth(gl_FragDepth);						\n"
+				"    dz = 4.0*fwidth(curZ);						\n"
 				"    dzMin = min(dz, depthDeltaZ.r);					\n"
 				"  }													\n"
 				"  bool bInfront = curZ < bufZ;							\n"
@@ -1903,19 +1991,27 @@ public:
 				"       break;											\n"
 				"  }													\n"
 				"  if (uEnableDepthUpdate != 0  && bRes) {				\n"
-				"    highp vec4 depthOutZ = vec4(gl_FragDepth, 1.0, 1.0, 1.0); \n"
-				"    highp vec4 depthOutDeltaZ = vec4(dz, 1.0, 1.0, 1.0); \n"
-				"    imageStore(uDepthImageZ, coord, depthOutZ);		\n"
-				"    imageStore(uDepthImageDeltaZ, coord, depthOutDeltaZ);\n"
+				;
+			if (_glinfo.imageTextures) {
+				m_part +=
+					"    highp vec4 depthOutZ = vec4(curZ, 1.0, 1.0, 1.0); \n"
+					"    highp vec4 depthOutDeltaZ = vec4(dz, 1.0, 1.0, 1.0); \n"
+					"    imageStore(uDepthImageZ, coord, depthOutZ);		\n"
+					"    imageStore(uDepthImageDeltaZ, coord, depthOutDeltaZ);	\n"
+					;
+			} else if (_glinfo.ext_fetch) {
+				m_part +=
+					"    depthZ.r = curZ;	\n"
+					"    depthDeltaZ.r = dz;	\n"
+					;
+			}
+			m_part +=
 				"  }													\n"
-				"  memoryBarrierImage();								\n"
 				"  if (uEnableDepthCompare != 0)						\n"
 				"    return bRes;										\n"
 				"  return true;											\n"
 				"}														\n"
 			;
-			if (!_glinfo.isGLESX && _glinfo.imageTextures && _glinfo.majorVersion * 10 + _glinfo.minorVersion < 43)
-				m_part = "#extension GL_ARB_compute_shader : enable	\n" + m_part;
 		}
 	}
 };
@@ -1927,25 +2023,38 @@ public:
 	{
 		if (config.frameBufferEmulation.N64DepthCompare != 0) {
 			m_part =
-				"bool depth_render(highp float Z)						\n"
+				"bool depth_render(highp float Z, highp float curZ)						\n"
 				"{														\n"
 				"  ivec2 coord = ivec2(gl_FragCoord.xy);				\n"
 				"  if (uEnableDepthCompare != 0) {						\n"
-				"    highp vec4 depthZ = imageLoad(uDepthImageZ,coord);	\n"
+				;
+			if (_glinfo.imageTextures) {
+				m_part +=
+					"    highp vec4 depthZ = imageLoad(uDepthImageZ,coord);	\n"
+					;
+			}
+			m_part +=
 				"    highp float bufZ = depthZ.r;						\n"
-				"    highp float curZ = gl_FragDepth;					\n"
 				"    if (curZ >= bufZ) return false;					\n"
 				"  }													\n"
-				"  highp vec4 depthOutZ = vec4(Z, 1.0, 1.0, 1.0);		\n"
-				"  highp vec4 depthOutDeltaZ = vec4(0.0, 1.0, 1.0, 1.0);\n"
-				"  imageStore(uDepthImageZ,coord, depthOutZ);			\n"
-				"  imageStore(uDepthImageDeltaZ,coord, depthOutDeltaZ);	\n"
-				"  memoryBarrierImage();								\n"
+				;
+			if (_glinfo.imageTextures) {
+				m_part +=
+					"  highp vec4 depthOutZ = vec4(Z, 1.0, 1.0, 1.0);		\n"
+					"  highp vec4 depthOutDeltaZ = vec4(0.0, 1.0, 1.0, 1.0);\n"
+					"  imageStore(uDepthImageZ,coord, depthOutZ);			\n"
+					"  imageStore(uDepthImageDeltaZ,coord, depthOutDeltaZ);	\n"
+					;
+			} else if (_glinfo.ext_fetch) {
+				m_part +=
+					"  depthZ.r = Z;	\n"
+					"  depthDeltaZ.r = 0.0;	\n"
+					;
+			}
+			m_part +=
 				"  return true;											\n"
 				"}														\n"
-			;
-			if (!_glinfo.isGLESX && _glinfo.imageTextures && _glinfo.majorVersion * 10 + _glinfo.minorVersion < 43)
-				m_part = "#extension GL_ARB_compute_shader : enable	\n" + m_part;
+				;
 		}
 	}
 };
@@ -2223,8 +2332,10 @@ graphics::CombinerProgram * CombinerProgramBuilder::buildCombinerProgram(Combine
 	else
 		glAttachShader(program, bUseTextures ? m_vertexShaderTexturedTriangle : m_vertexShaderTriangle);
 	glAttachShader(program, fragmentShader);
-	if (CombinerInfo::get().isShaderCacheSupported())
-		glProgramParameteri(program, GL_PROGRAM_BINARY_RETRIEVABLE_HINT, GL_TRUE);
+	if (CombinerInfo::get().isShaderCacheSupported()) {
+		if (IS_GL_FUNCTION_VALID(glProgramParameteri))
+			glProgramParameteri(program, GL_PROGRAM_BINARY_RETRIEVABLE_HINT, GL_TRUE);
+	}
 	glLinkProgram(program);
 	assert(Utils::checkProgramLinkStatus(program));
 	glDeleteShader(fragmentShader);
@@ -2251,11 +2362,12 @@ const ShaderPart * CombinerProgramBuilder::getFragmentShaderEnd() const
 }
 
 static
-GLuint _createVertexShader(ShaderPart * _header, ShaderPart * _body)
+GLuint _createVertexShader(ShaderPart * _header, ShaderPart * _body, ShaderPart * _footer)
 {
 	std::stringstream ssShader;
 	_header->write(ssShader);
 	_body->write(ssShader);
+	_footer->write(ssShader);
 	const std::string strShader(std::move(ssShader.str()));
 	const GLchar * strShaderData = strShader.data();
 
@@ -2279,6 +2391,7 @@ CombinerProgramBuilder::CombinerProgramBuilder(const opengl::GLInfo & _glinfo, o
 , m_alphaTest(new ShaderAlphaTest)
 , m_callDither(new ShaderCallDither(_glinfo))
 , m_vertexHeader(new VertexShaderHeader(_glinfo))
+, m_vertexEnd(new VertexShaderEnd(_glinfo))
 , m_vertexRect(new VertexShaderRect(_glinfo))
 , m_vertexTexturedRect(new VertexShaderTexturedRect(_glinfo))
 , m_vertexTriangle(new VertexShaderTriangle(_glinfo))
@@ -2317,10 +2430,10 @@ CombinerProgramBuilder::CombinerProgramBuilder(const opengl::GLInfo & _glinfo, o
 , m_useProgram(_useProgram)
 , m_combinerOptionsBits(graphics::CombinerProgram::getShaderCombinerOptionsBits())
 {
-	m_vertexShaderRect = _createVertexShader(m_vertexHeader.get(), m_vertexRect.get());
-	m_vertexShaderTriangle = _createVertexShader(m_vertexHeader.get(), m_vertexTriangle.get());
-	m_vertexShaderTexturedRect = _createVertexShader(m_vertexHeader.get(), m_vertexTexturedRect.get());
-	m_vertexShaderTexturedTriangle = _createVertexShader(m_vertexHeader.get(), m_vertexTexturedTriangle.get());
+	m_vertexShaderRect = _createVertexShader(m_vertexHeader.get(), m_vertexRect.get(), m_vertexEnd.get());
+	m_vertexShaderTriangle = _createVertexShader(m_vertexHeader.get(), m_vertexTriangle.get(), m_vertexEnd.get());
+	m_vertexShaderTexturedRect = _createVertexShader(m_vertexHeader.get(), m_vertexTexturedRect.get(), m_vertexEnd.get());
+	m_vertexShaderTexturedTriangle = _createVertexShader(m_vertexHeader.get(), m_vertexTexturedTriangle.get(), m_vertexEnd.get());
 	m_uniformFactory.reset(new CombinerProgramUniformFactory(_glinfo));
 }
 

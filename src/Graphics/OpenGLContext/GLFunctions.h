@@ -15,6 +15,17 @@
 #include <stddef.h>
 #include <OpenGL/gl3.h>
 //#include <OpenGL/gl3ext.h>
+#elif defined(OS_IOS)
+#include <OpenGLES/ES3/gl.h>
+#include <OpenGLES/ES3/glext.h>
+// Add missing type defintions for iOS
+typedef double GLclampd;
+typedef double GLdouble;
+// These will get redefined by other GL headers.
+#undef GL_DRAW_FRAMEBUFFER_BINDING
+#undef GL_COPY_READ_BUFFER_BINDING
+#undef GL_COPY_WRITE_BUFFER_BINDING
+#include <GL/glcorearb.h>
 #else
 #include <GL/gl.h>
 #endif
@@ -35,7 +46,7 @@
 #define IS_GL_FUNCTION_VALID(proc_name) g_##proc_name != nullptr
 #define GET_GL_FUNCTION(proc_name) g_##proc_name
 
-#ifdef EGL
+#if defined(EGL) || defined(OS_IOS)
 
 #define glGetError g_glGetError
 #define glBlendFunc(...) CHECKED_GL_FUNCTION(g_glBlendFunc, __VA_ARGS__)
@@ -201,8 +212,13 @@ extern PFNGLBLENDCOLORPROC g_glBlendColor;
 #define glCreateBuffers(...) CHECKED_GL_FUNCTION(g_glCreateBuffers, __VA_ARGS__)
 #define glCreateFramebuffers(...) CHECKED_GL_FUNCTION(g_glCreateFramebuffers, __VA_ARGS__)
 #define glNamedFramebufferTexture(...) CHECKED_GL_FUNCTION(g_glNamedFramebufferTexture, __VA_ARGS__)
-#define glDrawElementsBaseVertex(...) CHECKED_GL_FUNCTION(g_glDrawElementsBaseVertex, __VA_ARGS__)
+#define glDrawRangeElementsBaseVertex(...) CHECKED_GL_FUNCTION(g_glDrawRangeElementsBaseVertex, __VA_ARGS__)
 #define glFlushMappedBufferRange(...) CHECKED_GL_FUNCTION(g_glFlushMappedBufferRange, __VA_ARGS__)
+#define glTextureBarrier(...) CHECKED_GL_FUNCTION(g_glTextureBarrier, __VA_ARGS__)
+#define glTextureBarrierNV(...) CHECKED_GL_FUNCTION(g_glTextureBarrierNV, __VA_ARGS__)
+#define glClearBufferfv(...) CHECKED_GL_FUNCTION(g_glClearBufferfv, __VA_ARGS__)
+#define glEnablei(...) CHECKED_GL_FUNCTION(g_glEnablei, __VA_ARGS__)
+#define glDisablei(...) CHECKED_GL_FUNCTION(g_glDisablei, __VA_ARGS__)
 
 extern PFNGLCREATESHADERPROC g_glCreateShader;
 extern PFNGLCOMPILESHADERPROC g_glCompileShader;
@@ -295,8 +311,13 @@ extern PFNGLCREATETEXTURESPROC g_glCreateTextures;
 extern PFNGLCREATEBUFFERSPROC g_glCreateBuffers;
 extern PFNGLCREATEFRAMEBUFFERSPROC g_glCreateFramebuffers;
 extern PFNGLNAMEDFRAMEBUFFERTEXTUREPROC g_glNamedFramebufferTexture;
-extern PFNGLDRAWELEMENTSBASEVERTEXPROC g_glDrawElementsBaseVertex;
+extern PFNGLDRAWRANGEELEMENTSBASEVERTEXPROC g_glDrawRangeElementsBaseVertex;
 extern PFNGLFLUSHMAPPEDBUFFERRANGEPROC g_glFlushMappedBufferRange;
+extern PFNGLTEXTUREBARRIERPROC g_glTextureBarrier;
+extern PFNGLTEXTUREBARRIERNVPROC g_glTextureBarrierNV;
+extern PFNGLCLEARBUFFERFVPROC g_glClearBufferfv;
+extern PFNGLENABLEIPROC g_glEnablei;
+extern PFNGLDISABLEIPROC g_glDisablei;
 
 void initGLFunctions();
 

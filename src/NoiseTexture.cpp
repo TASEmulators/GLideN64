@@ -30,7 +30,7 @@ NoiseTexture::NoiseTexture()
 	, m_currTex(0)
 	, m_prevTex(0)
 {
-	for (u32 i = 0; i < m_prevTex; ++i)
+	for (u32 i = 0; i < NOISE_TEX_NUM; ++i)
 		m_pTexture[i] = nullptr;
 }
 
@@ -92,12 +92,12 @@ void NoiseTexture::_fillTextureData()
 			start += chunk;
 		} while (start < NOISE_TEX_NUM - chunk);
 
-		FillTextureData(generator(), &m_texData, start, m_texData.size());
+		FillTextureData(generator(), &m_texData, start, static_cast<u32>(m_texData.size()));
 
 		for (auto& t : threads)
 			t.join();
 	} else {
-		FillTextureData(static_cast<u32>(time(nullptr)), &m_texData, 0, m_texData.size());
+		FillTextureData(static_cast<u32>(time(nullptr)), &m_texData, 0, static_cast<u32>(m_texData.size()));
 	}
 
 	displayLoadProgress(L"");
@@ -125,17 +125,18 @@ void NoiseTexture::init()
 		m_pTexture[i]->realWidth = NOISE_TEX_WIDTH;
 		m_pTexture[i]->realHeight = NOISE_TEX_HEIGHT;
 		m_pTexture[i]->textureBytes = m_pTexture[i]->realWidth * m_pTexture[i]->realHeight;
-		textureCache().addFrameBufferTextureSize(m_pTexture[i]->textureBytes);
 
 		const FramebufferTextureFormats & fbTexFormats = gfxContext.getFramebufferTextureFormats();
 		{
 			Context::InitTextureParams params;
 			params.handle = m_pTexture[i]->name;
+			params.textureUnitIndex = textureIndices::NoiseTex;
 			params.width = m_pTexture[i]->realWidth;
 			params.height = m_pTexture[i]->realHeight;
 			params.internalFormat = fbTexFormats.noiseInternalFormat;
 			params.format = fbTexFormats.noiseFormat;
 			params.dataType = fbTexFormats.noiseType;
+			params.data = m_texData[i].data();
 			gfxContext.init2DTexture(params);
 		}
 		{
@@ -146,17 +147,6 @@ void NoiseTexture::init()
 			params.minFilter = textureParameters::FILTER_NEAREST;
 			params.magFilter = textureParameters::FILTER_NEAREST;
 			gfxContext.setTextureParameters(params);
-		}
-		{
-			Context::UpdateTextureDataParams params;
-			params.handle = m_pTexture[i]->name;
-			params.textureUnitIndex = textureIndices::NoiseTex;
-			params.width = m_pTexture[i]->realWidth;
-			params.height = m_pTexture[i]->realHeight;
-			params.format = fbTexFormats.noiseFormat;
-			params.dataType = fbTexFormats.noiseType;
-			params.data = m_texData[i].data();
-			gfxContext.update2DTexture(params);
 		}
 	}
 }

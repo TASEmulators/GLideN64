@@ -5,8 +5,16 @@ using namespace graphics;
 
 Context gfxContext;
 
-bool Context::imageTextures = false;
-bool Context::multisampling = false;
+bool Context::Multisampling = false;
+bool Context::BlitFramebuffer = false;
+bool Context::WeakBlitFramebuffer = false;
+bool Context::DepthFramebufferTextures = false;
+bool Context::ShaderProgramBinary = false;
+bool Context::ImageTextures = false;
+bool Context::IntegerTextures = false;
+bool Context::ClipControl = false;
+bool Context::FramebufferFetch = false;
+bool Context::TextureBarrier = false;
 
 Context::Context() {}
 
@@ -20,8 +28,16 @@ void Context::init()
 	m_impl.reset(new opengl::ContextImpl);
 	m_impl->init();
 	m_fbTexFormats.reset(m_impl->getFramebufferTextureFormats());
-	imageTextures = isSupported(SpecialFeatures::ImageTextures);
-	multisampling = isSupported(SpecialFeatures::Multisampling);
+	Multisampling = m_impl->isSupported(SpecialFeatures::Multisampling);
+	BlitFramebuffer = m_impl->isSupported(SpecialFeatures::BlitFramebuffer);
+	WeakBlitFramebuffer = m_impl->isSupported(SpecialFeatures::WeakBlitFramebuffer);
+	DepthFramebufferTextures = m_impl->isSupported(SpecialFeatures::DepthFramebufferTextures);
+	ShaderProgramBinary = m_impl->isSupported(SpecialFeatures::ShaderProgramBinary);
+	ImageTextures = m_impl->isSupported(SpecialFeatures::ImageTextures);
+	IntegerTextures = m_impl->isSupported(SpecialFeatures::IntegerTextures);
+	ClipControl = m_impl->isSupported(SpecialFeatures::ClipControl);
+	FramebufferFetch = m_impl->isSupported(SpecialFeatures::FramebufferFetch);
+	TextureBarrier = m_impl->isSupported(SpecialFeatures::TextureBarrier);
 }
 
 void Context::destroy()
@@ -30,9 +46,24 @@ void Context::destroy()
 	m_impl.reset();
 }
 
+void Context::setClampMode(ClampMode _mode)
+{
+	m_impl->setClampMode(_mode);
+}
+
+ClampMode Context::getClampMode()
+{
+	return m_impl->getClampMode();
+}
+
 void Context::enable(EnableParam _parameter, bool _enable)
 {
 	m_impl->enable(_parameter, _enable);
+}
+
+u32 Context::isEnabled(EnableParam _parameter)
+{
+	return m_impl->isEnabled(_parameter);
 }
 
 void Context::cullFace(CullModeParam _parameter)
@@ -140,6 +171,11 @@ u32 Context::convertInternalTextureFormat(u32 _format) const
 	return m_impl->convertInternalTextureFormat(_format);
 }
 
+void Context::textureBarrier()
+{
+	m_impl->textureBarrier();
+}
+
 /*---------------Framebuffer-------------*/
 
 const FramebufferTextureFormats & Context::getFramebufferTextureFormats()
@@ -182,9 +218,9 @@ bool Context::blitFramebuffers(const BlitFramebuffersParams & _params)
 	return m_impl->blitFramebuffers(_params);
 }
 
-PixelWriteBuffer * Context::createPixelWriteBuffer(size_t _sizeInBytes)
+void Context::setDrawBuffers(u32 _num)
 {
-	return m_impl->createPixelWriteBuffer(_sizeInBytes);
+	m_impl->setDrawBuffers(_num);
 }
 
 PixelReadBuffer * Context::createPixelReadBuffer(size_t _sizeInBytes)
@@ -283,11 +319,6 @@ void Context::drawLine(f32 _width, SPVertex * _vertices)
 f32 Context::getMaxLineWidth()
 {
 	return m_impl->getMaxLineWidth();
-}
-
-bool Context::isSupported(SpecialFeatures _feature) const
-{
-	return m_impl->isSupported(_feature);
 }
 
 bool Context::isError() const

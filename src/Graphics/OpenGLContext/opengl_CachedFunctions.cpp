@@ -1,3 +1,5 @@
+#include <Graphics/Parameters.h>
+
 #include "GLFunctions.h"
 #include "opengl_GLInfo.h"
 #include "opengl_CachedFunctions.h"
@@ -21,10 +23,21 @@ void CachedEnable::enable(bool _enable)
 		return;
 
 	if (_enable) {
-		glEnable(GLenum(m_parameter));
+		if (m_parameter == enable::BLEND && IS_GL_FUNCTION_VALID(glEnablei))
+			glEnablei(GLenum(m_parameter), 0);
+		else
+			glEnable(GLenum(m_parameter));
 	} else {
-		glDisable(GLenum(m_parameter));
+		if (m_parameter == enable::BLEND && IS_GL_FUNCTION_VALID(glDisablei))
+			glDisablei(GLenum(m_parameter), 0);
+		else
+			glDisable(GLenum(m_parameter));
 	}
+}
+
+u32 CachedEnable::get()
+{
+	return u32(m_cached);
 }
 
 /*---------------CachedBindTexture-------------*/
@@ -157,6 +170,7 @@ void CachedFunctions::reset()
 	for (auto it : m_enables)
 		it.second.reset();
 
+	m_texparams.clear();
 	m_bindTexture.reset();
 	m_bindFramebuffer.reset();
 	m_bindRenderbuffer.reset();
@@ -259,4 +273,9 @@ CachedUseProgram * CachedFunctions::getCachedUseProgram()
 CachedTextureUnpackAlignment * CachedFunctions::getCachedTextureUnpackAlignment()
 {
 	return &m_unpackAlignment;
+}
+
+TextureParams * CachedFunctions::getTexParams()
+{
+	return &m_texparams;
 }

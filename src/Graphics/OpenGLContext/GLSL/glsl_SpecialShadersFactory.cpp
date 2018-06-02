@@ -56,22 +56,65 @@ namespace glsl {
 		ShadowMapFragmentShader(const opengl::GLInfo & _glinfo)
 		{
 			m_part =
-				"layout(binding = 0, r32ui) highp uniform readonly uimage2D uZlutImage;\n"
-				"layout(binding = 1, r32ui) highp uniform readonly uimage2D uTlutImage;\n"
-				"layout(binding = 0) uniform sampler2D uDepthImage;		\n"
+				"uniform lowp usampler2D uZlutImage;\n"
+				"uniform lowp usampler2D uTlutImage;\n"
+				"uniform sampler2D uDepthImage;		\n"
 				"uniform lowp vec4 uFogColor;								\n"
-				"OUT lowp vec4 fragColor;									\n"
+				;
+
+			if (config.frameBufferEmulation.N64DepthCompare != 0) {
+				if (_glinfo.imageTextures)
+					m_part += "layout(binding = 2, r32f) highp uniform restrict readonly image2D uDepthImageZ;		\n";
+
+				if (_glinfo.ext_fetch) {
+					m_part +=
+						"layout(location = 0) OUT lowp vec4 fragColor;	\n"
+						"layout(location = 1) inout highp vec4 depthZ;	\n"
+						;
+				} else
+					m_part += "OUT lowp vec4 fragColor;									\n";
+			} else
+				m_part += "OUT lowp vec4 fragColor;	\n";
+
+			m_part +=
 				"lowp float get_alpha()										\n"
 				"{															\n"
-				"  mediump ivec2 coord = ivec2(gl_FragCoord.xy);			\n"
-				"  highp float bufZ = texelFetch(uDepthImage,coord, 0).r;	\n"
+				;
+
+			if (config.frameBufferEmulation.N64DepthCompare == 0) {
+				if (_glinfo.fetch_depth) {
+					m_part +=
+						"  highp float bufZ = gl_LastFragDepthARM;	\n"
+						;
+				} else {
+					m_part +=
+						"  mediump ivec2 coord = ivec2(gl_FragCoord.xy);	\n"
+						"  highp float bufZ = texelFetch(uDepthImage,coord, 0).r;	\n"
+						;
+				}
+			} else {
+				// Either _glinfo.imageTextures or _glinfo.ext_fetch must be enabled when N64DepthCompare != 0
+				// see GLInfo::init()
+				if (_glinfo.imageTextures) {
+					m_part +=
+						"  mediump ivec2 coord = ivec2(gl_FragCoord.xy);	\n"
+						"  highp float bufZ = imageLoad(uDepthImageZ,coord).r;	\n"
+						;
+				} else if (_glinfo.ext_fetch) {
+					m_part +=
+						"  highp float bufZ = depthZ.r;	\n"
+						;
+				}
+			}
+
+			m_part +=
 				"  highp int iZ = bufZ > 0.999 ? 262143 : int(floor(bufZ * 262143.0));\n"
 				"  mediump int y0 = clamp(iZ/512, 0, 511);					\n"
 				"  mediump int x0 = iZ - 512*y0;							\n"
-				"  highp uint iN64z = imageLoad(uZlutImage,ivec2(x0,y0)).r;		\n"
+				"  highp uint iN64z = texelFetch(uZlutImage,ivec2(x0,y0), 0).r;		\n"
 				"  highp float n64z = clamp(float(iN64z)/65532.0, 0.0, 1.0);\n"
 				"  highp int index = min(255, int(n64z*255.0));				\n"
-				"  highp uint iAlpha = imageLoad(uTlutImage,ivec2(index,0)).r;\n"
+				"  highp uint iAlpha = texelFetch(uTlutImage,ivec2(index,0), 0).r;\n"
 				"  return float(iAlpha>>8)/255.0;							\n"
 				"}															\n"
 				"void main()												\n"
@@ -79,6 +122,9 @@ namespace glsl {
 				"  fragColor = vec4(uFogColor.rgb, get_alpha());			\n"
 				"}															\n"
 				;
+
+			if (config.frameBufferEmulation.N64DepthCompare == 0 && _glinfo.fetch_depth)
+				 m_part = "#extension GL_ARM_shader_framebuffer_fetch_depth_stencil : enable	\n" + m_part;
 		}
 	};
 
@@ -426,22 +472,34 @@ namespace glsl {
 			const ShaderPart * _vertexHeader,
 			const ShaderPart * _fragmentHeader)
 			: ShadowMapShaderBase(_glinfo, _useProgram, _vertexHeader, _fragmentHeader)
-			, m_loc(-1)
+			, m_locFog(-1)
+			, m_locZlut(-1)
+			, m_locTlut(-1)
+			, m_locDepthImage(-1)
 		{
 			m_useProgram->useProgram(m_program);
-			m_loc = glGetUniformLocation(GLuint(m_program), "uFogColor");
+			m_locFog = glGetUniformLocation(GLuint(m_program), "uFogColor");
+			m_locZlut = glGetUniformLocation(GLuint(m_program), "uZlutImage");
+			m_locTlut = glGetUniformLocation(GLuint(m_program), "uTlutImage");
+			m_locDepthImage = glGetUniformLocation(GLuint(m_program), "uDepthImage");
 			m_useProgram->useProgram(graphics::ObjectHandle::null);
 		}
 
 		void activate() override {
 			ShadowMapShaderBase::activate();
-			glUniform4fv(m_loc, 1, &gDP.fogColor.r);
+			glUniform4fv(m_locFog, 1, &gDP.fogColor.r);
+			glUniform1i(m_locZlut, int(graphics::textureIndices::ZLUTTex));
+			glUniform1i(m_locTlut, int(graphics::textureIndices::PaletteTex));
+			glUniform1i(m_locDepthImage, 0);
 			glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 			g_paletteTexture.update();
 		}
 
 	private:
-		int m_loc;
+		int m_locFog;
+		int m_locZlut;
+		int m_locTlut;
+		int m_locDepthImage;
 	};
 
 	/*---------------TexrectDrawerShader-------------*/
@@ -638,7 +696,7 @@ namespace glsl {
 
 	graphics::ShaderProgram * SpecialShadersFactory::createShadowMapShader() const
 	{
-		if (!m_glinfo.imageTextures)
+		if (m_glinfo.isGLES2)
 			return nullptr;
 
 		return new ShadowMapShader(m_glinfo, m_useProgram, m_vertexHeader, m_fragmentHeader);

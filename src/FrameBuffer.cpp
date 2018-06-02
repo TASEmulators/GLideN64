@@ -53,6 +53,9 @@ FrameBuffer::FrameBuffer()
 	, m_pResolveTexture(nullptr)
 	, m_resolved(false)
 	, m_pSubTexture(nullptr)
+	, m_copied(false)
+	, m_pFrameBufferCopyTexture(nullptr)
+	, m_copyFBO(ObjectHandle::defaultFramebuffer)
 {
 	m_loadTileOrigin.uls = m_loadTileOrigin.ult = 0;
 	m_pTexture = textureCache().addFrameBufferTexture(config.video.multisampling != 0);
@@ -64,10 +67,12 @@ FrameBuffer::~FrameBuffer()
 	gfxContext.deleteFramebuffer(m_FBO);
 	gfxContext.deleteFramebuffer(m_resolveFBO);
 	gfxContext.deleteFramebuffer(m_SubFBO);
+	gfxContext.deleteFramebuffer(m_copyFBO);
 
 	textureCache().removeFrameBufferTexture(m_pTexture);
 	textureCache().removeFrameBufferTexture(m_pResolveTexture);
 	textureCache().removeFrameBufferTexture(m_pSubTexture);
+	textureCache().removeFrameBufferTexture(m_pFrameBufferCopyTexture);
 }
 
 void FrameBuffer::_initTexture(u16 _width, u16 _height, u16 _format, u16 _size, CachedTexture *_pTexture)
@@ -95,7 +100,6 @@ void FrameBuffer::_initTexture(u16 _width, u16 _height, u16 _format, u16 _size, 
 		_pTexture->textureBytes *= fbTexFormats.colorFormatBytes;
 	else
 		_pTexture->textureBytes *= fbTexFormats.monochromeFormatBytes;
-	textureCache().addFrameBufferTextureSize(_pTexture->textureBytes);
 }
 
 void FrameBuffer::_setAndAttachTexture(ObjectHandle _fbo, CachedTexture *_pTexture, u32 _t, bool _multisampling)
@@ -295,8 +299,8 @@ bool FrameBuffer::isValid(bool _forceCheck) const
 					return false;
 			return true;
 	} else if (!m_RdramCopy.empty()) {
-		const u32 * const pCopy = (const u32*)m_RdramCopy.data();
-		const u32 size = m_RdramCopy.size();
+		const u32 * const pCopy = reinterpret_cast<const u32* >(m_RdramCopy.data());
+		const u32 size = static_cast<u32>(m_RdramCopy.size());
 		const u32 size_dwords = size >> 2;
 		u32 start = m_startAddress >> 2;
 		u32 wrongPixels = 0;
@@ -311,7 +315,7 @@ bool FrameBuffer::isValid(bool _forceCheck) const
 
 void FrameBuffer::resolveMultisampledTexture(bool _bForce)
 {
-	if (!Context::multisampling)
+	if (!Context::Multisampling)
 		return;
 
 	if (m_resolved && !_bForce)
@@ -333,7 +337,7 @@ void FrameBuffer::resolveMultisampledTexture(bool _bForce)
 
 	gfxContext.blitFramebuffers(blitParams);
 
-	gfxContext.bindFramebuffer(bufferTarget::READ_FRAMEBUFFER, ObjectHandle::null);
+	gfxContext.bindFramebuffer(bufferTarget::READ_FRAMEBUFFER, ObjectHandle::defaultFramebuffer);
 
 	frameBufferList().setCurrentDrawBuffer();
 	m_resolved = true;
@@ -374,7 +378,7 @@ bool FrameBuffer::_initSubTexture(u32 _t)
 
 CachedTexture * FrameBuffer::_getSubTexture(u32 _t)
 {
-	if (!gfxContext.isSupported(SpecialFeatures::BlitFramebuffer))
+	if (!Context::BlitFramebuffer)
 		return m_pTexture;
 
 	if (!_initSubTexture(_t))
@@ -390,7 +394,7 @@ CachedTexture * FrameBuffer::_getSubTexture(u32 _t)
 		copyHeight = m_pTexture->realHeight - y0;
 
 	ObjectHandle readFBO = m_FBO;
-	if (gfxContext.isSupported(SpecialFeatures::WeakBlitFramebuffer) &&
+	if (Context::WeakBlitFramebuffer &&
 			m_pTexture->frameBufferTexture == CachedTexture::fbMultiSample) {
 		resolveMultisampledTexture(true);
 		readFBO = m_resolveFBO;
@@ -412,11 +416,52 @@ CachedTexture * FrameBuffer::_getSubTexture(u32 _t)
 
 	gfxContext.blitFramebuffers(blitParams);
 
-	gfxContext.bindFramebuffer(bufferTarget::READ_FRAMEBUFFER, ObjectHandle::null);
+	gfxContext.bindFramebuffer(bufferTarget::READ_FRAMEBUFFER, ObjectHandle::defaultFramebuffer);
 
 	frameBufferList().setCurrentDrawBuffer();
 
 	return m_pSubTexture;
+}
+
+void FrameBuffer::_initCopyTexture()
+{
+	m_copyFBO = gfxContext.createFramebuffer();
+	m_pFrameBufferCopyTexture = textureCache().addFrameBufferTexture(config.video.multisampling != 0);
+	_initTexture(m_width, VI_GetMaxBufferHeight(m_width), m_pTexture->format, m_pTexture->size, m_pFrameBufferCopyTexture);
+	_setAndAttachTexture(m_copyFBO, m_pFrameBufferCopyTexture, 0, config.video.multisampling != 0);
+	if (config.video.multisampling != 0)
+		m_pFrameBufferCopyTexture->frameBufferTexture = CachedTexture::fbMultiSample;
+}
+
+CachedTexture * FrameBuffer::_copyFrameBufferTexture()
+{
+	if (m_copied)
+		return m_pFrameBufferCopyTexture;
+
+	if (m_pFrameBufferCopyTexture == nullptr)
+		_initCopyTexture();
+
+	Context::BlitFramebuffersParams blitParams;
+	blitParams.readBuffer = m_FBO;
+	blitParams.drawBuffer = m_copyFBO;
+	blitParams.srcX0 = 0;
+	blitParams.srcY0 = 0;
+	blitParams.srcX1 = m_pTexture->realWidth;
+	blitParams.srcY1 = m_pTexture->realHeight;
+	blitParams.dstX0 = 0;
+	blitParams.dstY0 = 0;
+	blitParams.dstX1 = m_pTexture->realWidth;
+	blitParams.dstY1 = m_pTexture->realHeight;
+	blitParams.mask = blitMask::COLOR_BUFFER;
+	blitParams.filter = textureParameters::FILTER_NEAREST;
+
+	gfxContext.blitFramebuffers(blitParams);
+
+	gfxContext.bindFramebuffer(bufferTarget::READ_FRAMEBUFFER, ObjectHandle::defaultFramebuffer);
+	frameBufferList().setCurrentDrawBuffer();
+
+	m_copied = true;
+	return m_pFrameBufferCopyTexture;
 }
 
 CachedTexture * FrameBuffer::getTexture(u32 _t)
@@ -426,6 +471,13 @@ CachedTexture * FrameBuffer::getTexture(u32 _t)
 								 m_pDepthBuffer != nullptr &&
 								 (config.generalEmulation.hacks & hack_ZeldaMM) == 0;
 	CachedTexture *pTexture = getDepthTexture ? m_pDepthBuffer->m_pDepthBufferTexture : m_pTexture;
+
+	if (this == frameBufferList().getCurrent()) {
+		if (Context::TextureBarrier)
+			gfxContext.textureBarrier();
+		else if (Context::BlitFramebuffer)
+			pTexture = getDepthTexture ? m_pDepthBuffer->copyDepthBufferTexture(this) : _copyFrameBufferTexture();
+	}
 
 	const u32 shift = (gSP.textureTile[_t]->imageAddress - m_startAddress) >> (m_size - 1);
 	const u32 factor = m_width;
@@ -462,15 +514,24 @@ CachedTexture * FrameBuffer::getTexture(u32 _t)
 
 CachedTexture * FrameBuffer::getTextureBG(u32 _t)
 {
-	m_pTexture->scaleS = m_scale / (float)m_pTexture->realWidth;
-	m_pTexture->scaleT = m_scale / (float)m_pTexture->realHeight;
+	CachedTexture *pTexture = m_pTexture;
 
-	m_pTexture->shiftScaleS = 1.0f;
-	m_pTexture->shiftScaleT = 1.0f;
+	if (this == frameBufferList().getCurrent()) {
+		if (Context::TextureBarrier)
+			gfxContext.textureBarrier();
+		else if (Context::BlitFramebuffer)
+			pTexture = _copyFrameBufferTexture();
+	}
 
-	m_pTexture->offsetS = gSP.bgImage.imageX;
-	m_pTexture->offsetT = gSP.bgImage.imageY;
-	return m_pTexture;
+	pTexture->scaleS = m_scale / (float)pTexture->realWidth;
+	pTexture->scaleT = m_scale / (float)pTexture->realHeight;
+
+	pTexture->shiftScaleS = 1.0f;
+	pTexture->shiftScaleT = 1.0f;
+
+	pTexture->offsetS = gSP.bgImage.imageX;
+	pTexture->offsetT = gSP.bgImage.imageY;
+	return pTexture;
 }
 
 FrameBufferList & FrameBufferList::get()
@@ -483,12 +544,12 @@ void FrameBufferList::init()
 {
 	 m_pCurrent = nullptr;
 	 m_pCopy = nullptr;
-	 gfxContext.bindFramebuffer(bufferTarget::DRAW_FRAMEBUFFER, ObjectHandle::null);
+	 gfxContext.bindFramebuffer(bufferTarget::DRAW_FRAMEBUFFER, ObjectHandle::defaultFramebuffer);
 	 m_prevColorImageHeight = 0;
 }
 
 void FrameBufferList::destroy() {
-	gfxContext.bindFramebuffer(bufferTarget::FRAMEBUFFER, ObjectHandle::null);
+	gfxContext.bindFramebuffer(bufferTarget::FRAMEBUFFER, ObjectHandle::defaultFramebuffer);
 	m_list.clear();
 	m_pCurrent = nullptr;
 	m_pCopy = nullptr;
@@ -519,6 +580,8 @@ void FrameBufferList::setCurrentDrawBuffer() const
 {
 	if (m_pCurrent != nullptr)
 		gfxContext.bindFramebuffer(bufferTarget::DRAW_FRAMEBUFFER, m_pCurrent->m_FBO);
+	else if (!m_list.empty())
+		gfxContext.bindFramebuffer(bufferTarget::DRAW_FRAMEBUFFER, m_list.back().m_FBO);
 }
 
 FrameBuffer * FrameBufferList::findBuffer(u32 _startAddress)
@@ -703,6 +766,7 @@ void FrameBufferList::saveBuffer(u32 _address, u16 _format, u16 _size, u16 _widt
 
 	m_pCurrent->m_isDepthBuffer = _address == gDP.depthImageAddress;
 	m_pCurrent->m_isPauseScreen = m_pCurrent->m_isOBScreen = false;
+	m_pCurrent->m_copied = false;
 }
 
 void FrameBufferList::copyAux()
@@ -719,7 +783,7 @@ void FrameBufferList::removeAux()
 		while (iter->isAuxiliary()) {
 			if (&(*iter) == m_pCurrent) {
 				m_pCurrent = nullptr;
-				gfxContext.bindFramebuffer(bufferTarget::DRAW_FRAMEBUFFER, ObjectHandle::null);
+				gfxContext.bindFramebuffer(bufferTarget::DRAW_FRAMEBUFFER, ObjectHandle::defaultFramebuffer);
 			}
 			iter = m_list.erase(iter);
 			if (iter == m_list.end())
@@ -734,7 +798,7 @@ void FrameBufferList::removeBuffer(u32 _address )
 		if (iter->m_startAddress == _address) {
 			if (&(*iter) == m_pCurrent) {
 				m_pCurrent = nullptr;
-				gfxContext.bindFramebuffer(bufferTarget::DRAW_FRAMEBUFFER, ObjectHandle::null);
+				gfxContext.bindFramebuffer(bufferTarget::DRAW_FRAMEBUFFER, ObjectHandle::defaultFramebuffer);
 			}
 			m_list.erase(iter);
 			return;
@@ -748,7 +812,7 @@ void FrameBufferList::removeBuffers(u32 _width)
 		while (iter->m_width == _width) {
 			if (&(*iter) == m_pCurrent) {
 				m_pCurrent = nullptr;
-				gfxContext.bindFramebuffer(bufferTarget::DRAW_FRAMEBUFFER, ObjectHandle::null);
+				gfxContext.bindFramebuffer(bufferTarget::DRAW_FRAMEBUFFER, ObjectHandle::defaultFramebuffer);
 			}
 			iter = m_list.erase(iter);
 			if (iter == m_list.end())
@@ -794,8 +858,8 @@ void FrameBufferList::attachDepthBuffer()
 		pDepthBuffer->initDepthBufferTexture(pCurrent);
 
 		bool goodDepthBufferTexture = false;
-		if (gfxContext.isSupported(SpecialFeatures::DepthFramebufferTextures)) {
-			goodDepthBufferTexture = gfxContext.isSupported(SpecialFeatures::WeakBlitFramebuffer) ?
+		if (Context::DepthFramebufferTextures) {
+			goodDepthBufferTexture = Context::WeakBlitFramebuffer ?
 				pDepthBuffer->m_pDepthBufferTexture->realWidth == pCurrent->m_pTexture->realWidth :
 				pDepthBuffer->m_pDepthBufferTexture->realWidth >= pCurrent->m_pTexture->realWidth;
 		} else {
@@ -806,7 +870,7 @@ void FrameBufferList::attachDepthBuffer()
 			pCurrent->m_pDepthBuffer = pDepthBuffer;
 			pDepthBuffer->setDepthAttachment(pCurrent->m_FBO, bufferTarget::DRAW_FRAMEBUFFER);
 			if (config.frameBufferEmulation.N64DepthCompare != 0)
-				pDepthBuffer->bindDepthImageTexture();
+				pDepthBuffer->bindDepthImageTexture(pCurrent->m_FBO);
 		} else
 			pCurrent->m_pDepthBuffer = nullptr;
 	} else
@@ -854,13 +918,18 @@ void FrameBufferList::_renderScreenSizeBuffer()
 	FrameBuffer * pFilteredBuffer = postProcessor.doGammaCorrection(postProcessor.doOrientationCorrection(pBuffer));
 	CachedTexture * pBufferTexture = pFilteredBuffer->m_pTexture;
 
+	const u32 wndWidth = wnd.getWidth();
+	const u32 wndHeight = wnd.getHeight();
+	s32 srcCoord[4] = { 0, 0, static_cast<s32>(wndWidth), static_cast<s32>(wndHeight) };
 
-	s32 srcCoord[4] = { 0, 0, pBufferTexture->realWidth, pBufferTexture->realHeight };
-	const s32 hOffset = (wnd.getScreenWidth() - wnd.getWidth()) / 2;
-	const s32 vOffset = (wnd.getScreenHeight() - wnd.getHeight()) / 2 + wnd.getHeightOffset();
-	s32 dstCoord[4] = { hOffset, vOffset, hOffset + pBufferTexture->realWidth, vOffset + pBufferTexture->realHeight };
+	const u32 screenWidth = wnd.getScreenWidth();
+	const u32 screenHeight = wnd.getScreenHeight();
+	const u32 wndHeightOffset = wnd.getHeightOffset();
+	const s32 hOffset = (screenWidth - wndWidth) / 2;
+	const s32 vOffset = (screenHeight - wndHeight) / 2 + wndHeightOffset;
+	s32 dstCoord[4] = { hOffset, vOffset, hOffset + static_cast<s32>(wndWidth), vOffset + static_cast<s32>(wndHeight) };
 
-	gfxContext.bindFramebuffer(bufferTarget::DRAW_FRAMEBUFFER, ObjectHandle::null);
+	gfxContext.bindFramebuffer(bufferTarget::DRAW_FRAMEBUFFER, ObjectHandle::defaultFramebuffer);
 
 	float clearColor[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
 	drawer.clearColorBuffer(clearColor);
@@ -872,14 +941,14 @@ void FrameBufferList::_renderScreenSizeBuffer()
 	blitParams.srcY0 = srcCoord[3];
 	blitParams.srcX1 = srcCoord[2];
 	blitParams.srcY1 = srcCoord[1];
-	blitParams.srcWidth = pBufferTexture->realWidth;
-	blitParams.srcHeight = pBufferTexture->realHeight;
+	blitParams.srcWidth = wndWidth;
+	blitParams.srcHeight = wndHeight;
 	blitParams.dstX0 = dstCoord[0];
 	blitParams.dstY0 = dstCoord[1];
 	blitParams.dstX1 = dstCoord[2];
 	blitParams.dstY1 = dstCoord[3];
-	blitParams.dstWidth = wnd.getScreenWidth();
-	blitParams.dstHeight = wnd.getScreenHeight() + wnd.getHeightOffset();
+	blitParams.dstWidth = screenWidth;
+	blitParams.dstHeight = screenHeight + wndHeightOffset;
 	blitParams.filter = filter;
 	blitParams.mask = blitMask::COLOR_BUFFER;
 	blitParams.tex[0] = pBufferTexture;
@@ -888,10 +957,13 @@ void FrameBufferList::_renderScreenSizeBuffer()
 
 	drawer.blitOrCopyTexturedRect(blitParams);
 
-	gfxContext.bindFramebuffer(bufferTarget::READ_FRAMEBUFFER, ObjectHandle::null);
+	gfxContext.bindFramebuffer(bufferTarget::READ_FRAMEBUFFER, ObjectHandle::defaultFramebuffer);
 
 	wnd.swapBuffers();
 	gfxContext.bindFramebuffer(bufferTarget::DRAW_FRAMEBUFFER, pBuffer->m_FBO);
+	if (config.frameBufferEmulation.forceDepthBufferClear != 0) {
+		gfxContext.clearDepthBuffer();
+	}
 	gDP.changed |= CHANGED_SCISSOR;
 }
 
@@ -1095,7 +1167,7 @@ void FrameBufferList::renderBuffer()
 
 
 	const u32 stride = pBuffer->m_width << pBuffer->m_size >> 1;
-	FrameBuffer *pNextBuffer = findBuffer(rdpRes.vi_origin + stride * srcHeight);
+	FrameBuffer *pNextBuffer = findBuffer(rdpRes.vi_origin + stride * (srcHeight - 1));
 	if (pNextBuffer == pBuffer)
 		pNextBuffer = nullptr;
 
@@ -1157,7 +1229,7 @@ void FrameBufferList::renderBuffer()
 		readBuffer = pFilteredBuffer->m_FBO;
 	}
 
-	gfxContext.bindFramebuffer(bufferTarget::DRAW_FRAMEBUFFER, ObjectHandle::null);
+	gfxContext.bindFramebuffer(bufferTarget::DRAW_FRAMEBUFFER, ObjectHandle::defaultFramebuffer);
 	float clearColor[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
 	drawer.clearColorBuffer(clearColor);
 
@@ -1215,11 +1287,14 @@ void FrameBufferList::renderBuffer()
 		drawer.copyTexturedRect(blitParams);
 	}
 
-	gfxContext.bindFramebuffer(bufferTarget::READ_FRAMEBUFFER, ObjectHandle::null);
+	gfxContext.bindFramebuffer(bufferTarget::READ_FRAMEBUFFER, ObjectHandle::defaultFramebuffer);
 
 	wnd.swapBuffers();
 	if (m_pCurrent != nullptr) {
 		gfxContext.bindFramebuffer(bufferTarget::DRAW_FRAMEBUFFER, m_pCurrent->m_FBO);
+	}
+	if (config.frameBufferEmulation.forceDepthBufferClear != 0) {
+		gfxContext.clearDepthBuffer();
 	}
 
 	const s32 X = hOffset;
