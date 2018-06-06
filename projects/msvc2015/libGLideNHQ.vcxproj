@@ -200,6 +200,7 @@
       <PreprocessorDefinitions>UNICODE;WIN32;_WINDOWS;_DEBUG;WIN32;OS_WINDOWS;_CRT_SECURE_NO_WARNINGS;DEBUG;__MSC__;CMAKE_INTDIR="Debug";%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ObjectFileName>$(IntDir)</ObjectFileName>
       <MultiProcessorCompilation>true</MultiProcessorCompilation>
+      <AdditionalOptions>/Zc:threadSafeInit- %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
     <ResourceCompile>
       <PreprocessorDefinitions>WIN32;_WINDOWS;_DEBUG;WIN32;OS_WINDOWS;_CRT_SECURE_NO_WARNINGS;DEBUG;__MSC__;CMAKE_INTDIR=\"Debug\";%(PreprocessorDefinitions)</PreprocessorDefinitions>
@@ -348,6 +349,7 @@
       <PreprocessorDefinitions>UNICODE;WIN32;_WINDOWS;NDEBUG;OS_WINDOWS;_CRT_SECURE_NO_WARNINGS;__MSC__;CMAKE_INTDIR="Release";%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ObjectFileName>$(IntDir)</ObjectFileName>
       <MultiProcessorCompilation>true</MultiProcessorCompilation>
+      <AdditionalOptions>/Zc:threadSafeInit- %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
     <ResourceCompile>
       <PreprocessorDefinitions>WIN32;_WINDOWS;NDEBUG;WIN32;OS_WINDOWS;_CRT_SECURE_NO_WARNINGS;DEBUG;__MSC__;CMAKE_INTDIR=\"Release\";%(PreprocessorDefinitions)</PreprocessorDefinitions>
