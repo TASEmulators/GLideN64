@@ -56,6 +56,7 @@ void gSPFlushTriangles()
 		(RSP.nextCmd != G_QUAD)
 		) {
 		dwnd().getDrawer().drawTriangles();
+		DebugMsg(DEBUG_NORMAL, "Triangles flushed;\n");
 	}
 }
 
@@ -79,43 +80,46 @@ void gSPTriangle(s32 v0, s32 v1, s32 v2)
 {
 	GraphicsDrawer & drawer = dwnd().getDrawer();
 	if ((v0 < INDEXMAP_SIZE) && (v1 < INDEXMAP_SIZE) && (v2 < INDEXMAP_SIZE)) {
-		if (drawer.isClipped(v0, v1, v2))
+		if (drawer.isClipped(v0, v1, v2)) {
+			DebugMsg(DEBUG_NORMAL, "Triangle clipped (%i, %i, %i)\n", v0, v1, v2);
 			return;
+		}
 		drawer.addTriangle(v0, v1, v2);
+		DebugMsg(DEBUG_NORMAL, "Triangle #%i added (%i, %i, %i)\n", gSP.tri_num++, v0, v1, v2);
 	}
 }
 
 void gSP1Triangle( const s32 v0, const s32 v1, const s32 v2)
 {
+	DebugMsg(DEBUG_NORMAL, "gSP1Triangle (%i, %i, %i)\n", v0, v1, v2);
+
 	gSPTriangle( v0, v1, v2);
 	gSPFlushTriangles();
-
-	DebugMsg(DEBUG_NORMAL, "gSP1Triangle (%i, %i, %i)\n", v0, v1, v2);
 }
 
 void gSP2Triangles(const s32 v00, const s32 v01, const s32 v02, const s32 flag0,
-					const s32 v10, const s32 v11, const s32 v12, const s32 flag1 )
+				   const s32 v10, const s32 v11, const s32 v12, const s32 flag1 )
 {
+	DebugMsg(DEBUG_NORMAL, "gSP2Triangle (%i, %i, %i)-(%i, %i, %i)\n", v00, v01, v02, v10, v11, v12);
+
 	gSPTriangle( v00, v01, v02);
 	gSPTriangle( v10, v11, v12);
 	gSPFlushTriangles();
-
-	DebugMsg(DEBUG_NORMAL, "gSP2Triangle (%i, %i, %i)-(%i, %i, %i)\n", v00, v01, v02, v10, v11, v12);
 }
 
 void gSP4Triangles(const s32 v00, const s32 v01, const s32 v02,
-					const s32 v10, const s32 v11, const s32 v12,
-					const s32 v20, const s32 v21, const s32 v22,
-					const s32 v30, const s32 v31, const s32 v32 )
+				   const s32 v10, const s32 v11, const s32 v12,
+				   const s32 v20, const s32 v21, const s32 v22,
+				   const s32 v30, const s32 v31, const s32 v32 )
 {
+	DebugMsg(DEBUG_NORMAL, "gSP4Triangle (%i, %i, %i)-(%i, %i, %i)-(%i, %i, %i)-(%i, %i, %i)\n",
+			 v00, v01, v02, v10, v11, v12, v20, v21, v22, v30, v31, v32);
+
 	gSPTriangle(v00, v01, v02);
 	gSPTriangle(v10, v11, v12);
 	gSPTriangle(v20, v21, v22);
 	gSPTriangle(v30, v31, v32);
 	gSPFlushTriangles();
-
-	DebugMsg(DEBUG_NORMAL, "gSP4Triangle (%i, %i, %i)-(%i, %i, %i)-(%i, %i, %i)-(%i, %i, %i)\n",
-		v00, v01, v02, v10, v11, v12, v20, v21, v22, v30, v31, v32);
 }
 
 gSPInfo gSP;
@@ -400,7 +404,7 @@ void gSPLightAcclaim(u32 l, s32 n)
 
 	gSP.changed |= CHANGED_LIGHT;
 
-	DebugMsg(DEBUG_NORMAL, "gSPLightAcclaim( 0x%08X, LIGHT_%i );\n", l, n);
+	DebugMsg(DEBUG_NORMAL, "gSPLightAcclaim( 0x%08X, LIGHT_%i ca=%f la=%f);\n", l, n, gSP.lights.ca[n], gSP.lights.la[n]);
 }
 
 void gSPLookAt( u32 _l, u32 _n )
@@ -485,7 +489,7 @@ void gSPLightVertexStandard(u32 v, SPVertex * spVtx)
 			vtx.b = gSP.lights.rgb[gSP.numLights][B];
 			vtx.HWLight = 0;
 
-			for (int i = 0; i < gSP.numLights; ++i) {
+			for (u32 i = 0; i < gSP.numLights; ++i) {
 				const f32 intensity = DotProduct( &vtx.nx, gSP.lights.i_xyz[i] );
 				if (intensity > 0.0f) {
 					vtx.r += gSP.lights.rgb[i][R] * intensity;
@@ -817,6 +821,9 @@ void gSPProcessVertex(u32 v, SPVertex * spVtx)
 			gSPPointLightVertex<VNUM>(v, vPos, spVtx);
 		else
 			gSPLightVertex<VNUM>(v, spVtx);
+
+		if (gSP.geometryMode & G_ACCLAIM_LIGHTING)
+			gSPPointLightVertexAcclaim<VNUM>(v, spVtx);
 
 		if ((gSP.geometryMode & G_TEXTURE_GEN) != 0) {
 			if (GBI.getMicrocodeType() != F3DFLX2) {
@@ -1575,10 +1582,10 @@ void gSPInsertMatrix( u32 where, u32 num )
 
 	if (where < 0x20) {
 		fraction = modff( gSP.matrix.combined[0][where >> 1], &integer );
-		gSP.matrix.combined[0][where >> 1] = (s16)_SHIFTR( num, 16, 16 ) + abs( (int)fraction );
+		gSP.matrix.combined[0][where >> 1] = (f32)((s16)_SHIFTR( num, 16, 16 ) + abs( (int)fraction ));
 
 		fraction = modff( gSP.matrix.combined[0][(where >> 1) + 1], &integer );
-		gSP.matrix.combined[0][(where >> 1) + 1] = (s16)_SHIFTR( num, 0, 16 ) + abs( (int)fraction );
+		gSP.matrix.combined[0][(where >> 1) + 1] = (f32)((s16)_SHIFTR( num, 0, 16 ) + abs( (int)fraction ));
 	} else {
 		f32 newValue;
 
@@ -1631,6 +1638,14 @@ void gSPModifyVertex( u32 _vtx, u32 _where, u32 _val )
 				if (gSP.viewport.vscale[0] < 0)
 					vtx0.x = -vtx0.x;
 				vtx0.x *= vtx0.w;
+
+				if (dwnd().isAdjustScreen()) {
+					const f32 adjustScale = dwnd().getAdjustScale();
+					vtx0.x *= adjustScale;
+					if (gSP.matrix.projection[3][2] == -1.f)
+						vtx0.w *= adjustScale;
+				}
+
 				vtx0.y = -(vtx0.y - gSP.viewport.vtrans[1]) / gSP.viewport.vscale[1];
 				if (gSP.viewport.vscale[1] < 0)
 					vtx0.y = -vtx0.y;
@@ -1720,7 +1735,7 @@ void gSPCoordMod(u32 _w0, u32 _w1)
 	}
 }
 
-void gSPTexture( f32 sc, f32 tc, s32 level, s32 tile, s32 on )
+void gSPTexture( f32 sc, f32 tc, u32 level, u32 tile, u32 on )
 {
 	gSP.texture.on = on;
 	if (on == 0) {
@@ -2020,8 +2035,8 @@ struct ObjCoordinates
 		}
 
 		uls = ult = 0;
-		lrs = data.imageW - 1;
-		lrt = data.imageH - 1;
+		lrs = (f32)(data.imageW - 1);
+		lrt = (f32)(data.imageH - 1);
 		if (data.flipS) {
 			uls = lrs;
 			lrs = 0;
@@ -2067,8 +2082,8 @@ struct ObjCoordinates
 
 		uls = imageX;
 		ult = imageY;
-		lrs = uls + (lrx - ulx - 1.0f) * scaleW;
-		lrt = ult + (lry - uly - 1.0f) * scaleH;
+		lrs = uls + (lrx - ulx) * scaleW;
+		lrt = ult + (lry - uly) * scaleH;
 		if (gDP.otherMode.cycleType != G_CYC_COPY) {
 			if ((gSP.objRendermode&G_OBJRM_SHRINKSIZE_1) != 0) {
 				lrs -= 1.0f / scaleW;
@@ -2158,7 +2173,7 @@ void _drawYUVImageToFrameBuffer(const ObjCoordinates & _objCoords)
 	const u32 lrx = (u32)_objCoords.lrx;
 	const u32 lry = (u32)_objCoords.lry;
 	const u32 ci_width = gDP.colorImage.width;
-	const u32 ci_height = gDP.scissor.lry;
+	const u32 ci_height = (u32)gDP.scissor.lry;
 	if (ulx >= ci_width)
 		return;
 	if (uly >= ci_height)
@@ -2375,15 +2390,21 @@ void gSPObjSprite(u32 _sp)
 	const f32 lrx = data.X1;
 	const f32 lry = data.Y1;
 
-	float uls = 0, lrs =  data.imageW - 1, ult = 0, lrt = data.imageH - 1;
+	f32 uls = 0;
+	f32 lrs = (f32)(data.imageW - 1);
+	f32 ult = 0;
+	f32 lrt = (f32)(data.imageH - 1);
+
 	if (objSprite->imageFlags & 0x01) { // flipS
 		uls = lrs;
 		lrs = 0;
 	}
+
 	if (objSprite->imageFlags & 0x10) { // flipT
 		ult = lrt;
 		lrt = 0;
 	}
+
 	const float z = (gDP.otherMode.depthSource == G_ZS_PRIM) ? gDP.primDepth.z : gSP.viewport.nearz;
 
 	GraphicsDrawer & drawer = dwnd().getDrawer();

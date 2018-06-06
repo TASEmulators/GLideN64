@@ -308,8 +308,8 @@ void _TexRect( u32 w0, u32 w1, bool flip )
 		_FIXED2FLOAT(lrx, 2),
 		_FIXED2FLOAT(lry, 2),
 		_SHIFTR(w1, 24, 3),							// tile
-		_FIXED2FLOAT((s16)_SHIFTR(w2, 16, 16), 5),	// s
-		_FIXED2FLOAT((s16)_SHIFTR(w2, 0, 16), 5),	// t
+		(s16)_SHIFTR(w2, 16, 16),					// s
+		(s16)_SHIFTR(w2, 0, 16),					// t
 		_FIXED2FLOAT((s16)_SHIFTR(w3, 16, 16), 10),	// dsdx
 		_FIXED2FLOAT((s16)_SHIFTR(w3, 0, 16), 10),	// dsdy
 		flip);
@@ -554,15 +554,12 @@ inline u32 READ_RDP_DATA(u32 address)
 void RDP_ProcessRDPList()
 {
 	if (ConfigOpen || dwnd().isResizeWindow()) {
-		dp_status &= ~0x0002;
 		dp_start = dp_current = dp_end;
 		gDPFullSync();
 		return;
 	}
 
 	const u32 length = dp_end - dp_current;
-
-	dp_status &= ~0x0002;
 
 	if (dp_end <= dp_current) return;
 

@@ -75,7 +75,7 @@ BufferedDrawer::~BufferedDrawer()
 
 void BufferedDrawer::_updateBuffer(Buffer & _buffer, u32 _count, u32 _dataSize, const void * _data)
 {
-	if (_buffer.offset + _dataSize > _buffer.size) {
+	if (_buffer.offset + _dataSize >= _buffer.size) {
 		_buffer.offset = 0;
 		_buffer.pos = 0;
 	}
@@ -212,7 +212,7 @@ void BufferedDrawer::drawTriangles(const graphics::Context::DrawTriangleParamete
 	// Draw polygons one by one
 	const GLint eboStartPos = m_trisBuffers.ebo.pos - _params.elementsCount;
 	const GLint vboStartPos = m_trisBuffers.vbo.pos - _params.verticesCount;
-	for (GLint i = 0; i < _params.elementsCount; i += 3) {
+	for (GLuint i = 0; i < _params.elementsCount; i += 3) {
 		glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
 		glDrawElementsBaseVertex(GLenum(_params.mode), 3, GL_UNSIGNED_BYTE,
 			(char*)nullptr + eboStartPos + i, vboStartPos);

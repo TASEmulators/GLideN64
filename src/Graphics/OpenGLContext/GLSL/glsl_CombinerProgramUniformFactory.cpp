@@ -203,7 +203,7 @@ public:
 					nFbFixedAlpha0 = 1;
 			} else if (gSP.textureTile[0]->size == G_IM_SIZ_16b && gSP.textureTile[0]->format == G_IM_FMT_IA) {
 				nFbMonochromeMode0 = 2;
-			} else if ((config.generalEmulation.hacks & hack_ZeldaMM) != 0 &&
+			} else if ((config.generalEmulation.hacks & hack_ZeldaMonochrome) != 0 &&
 					   cache.current[0]->size == G_IM_SIZ_16b &&
 					   gSP.textureTile[0]->size == G_IM_SIZ_8b &&
 					   gSP.textureTile[0]->format == G_IM_FMT_CI) {
@@ -456,7 +456,6 @@ public:
 	UTextureFetchMode(GLuint _program) {
 		LocateUniform(uTextureFilterMode);
 		LocateUniform(uTextureFormat);
-		LocateUniform(uBiLerp);
 		LocateUniform(uTextureConvert);
 		LocateUniform(uConvertParams);
 	}
@@ -467,9 +466,8 @@ public:
 		if ((gSP.objRendermode&G_OBJRM_BILERP) != 0)
 			textureFilter |= 2;
 		uTextureFilterMode.set(textureFilter, _force);
-		uBiLerp.set(gDP.otherMode.bi_lerp0, gDP.otherMode.bi_lerp1, _force);
 		uTextureFormat.set(gSP.textureTile[0]->format, gSP.textureTile[1]->format, _force);
-		uTextureConvert.set(0, gDP.otherMode.convert_one, _force);
+		uTextureConvert.set(gDP.otherMode.convert_one, _force);
 		if (gDP.otherMode.bi_lerp0 == 0 || gDP.otherMode.bi_lerp1 == 0)
 			uConvertParams.set(gDP.convert.k0, gDP.convert.k1, gDP.convert.k2, gDP.convert.k3, _force);
 	}
@@ -477,8 +475,7 @@ public:
 private:
 	iUniform uTextureFilterMode;
 	iv2Uniform uTextureFormat;
-	iv2Uniform uBiLerp;
-	iv2Uniform uTextureConvert;
+	iUniform uTextureConvert;
 	i4Uniform uConvertParams;
 };
 
@@ -578,7 +575,7 @@ public:
 		uDepthSource.set(gDP.otherMode.depthSource, _force);
 		if (gDP.otherMode.depthSource == G_ZS_PRIM) {
 			uDeltaZ.set(gDP.primDepth.deltaZ, _force);
-			uPrimDepth.set((gDP.primDepth.z + 1.0f) * 0.5f, _force);
+			uPrimDepth.set(gDP.primDepth.z, _force);
 		}
 	}
 
@@ -604,7 +601,7 @@ public:
 	{
 		uDepthSource.set(gDP.otherMode.depthSource, _force);
 		if (gDP.otherMode.depthSource == G_ZS_PRIM)
-			uPrimDepth.set((gDP.primDepth.z + 1.0f) * 0.5f, _force);
+			uPrimDepth.set(gDP.primDepth.z, _force);
 	}
 
 private:
@@ -822,7 +819,7 @@ public:
 
 	void update(bool _force) override
 	{
-		for (s32 i = 0; i <= gSP.numLights; ++i) {
+		for (u32 i = 0; i <= gSP.numLights; ++i) {
 			uLightDirection[i].set(gSP.lights.xyz[i], _force);
 			uLightColor[i].set(gSP.lights.rgb[i], _force);
 		}
