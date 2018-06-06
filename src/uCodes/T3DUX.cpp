@@ -117,10 +117,13 @@ void T3DUX_LoadObject(u32 pstate, u32 pvtx, u32 ptri, u32 pcol)
 	gSP.texture.scales = 1.0f;
 	gSP.texture.scalet = 1.0f;
 
-	const u32 w0 = ostate->othermode0;
-	const u32 w1 = ostate->othermode1;
-	gDPSetOtherMode( _SHIFTR( w0, 0, 24 ),	// mode0
-					 w1 );					// mode1
+	{
+		const u32 w0 = ostate->othermode0;
+		const u32 w1 = ostate->othermode1;
+		gDPSetOtherMode(
+			_SHIFTR(w0, 0, 24),	// mode0
+			w1);				// mode1
+	}
 
 	if ((ostate->matrixFlag & 1) == 0) //load matrix
 		gSPForceMatrix(pstate + sizeof(T3DUXState));
@@ -152,7 +155,7 @@ void T3DUX_LoadObject(u32 pstate, u32 pvtx, u32 ptri, u32 pcol)
 			const u32 w1 = t32uxSetTileW1 | (tri->pal << 20);
 			const u32 newPal = _SHIFTR(w1, 20, 4);
 			if (pal != newPal) {
-				drawer.drawDMATriangles(pVtx - drawer.getDMAVerticesData());
+				drawer.drawDMATriangles(static_cast<u32>(pVtx - drawer.getDMAVerticesData()));
 				pVtx = drawer.getDMAVerticesData();
 				pal = newPal;
 				RDP_SetTile(t32uxSetTileW0, w1);
@@ -204,16 +207,15 @@ void T3DUX_LoadObject(u32 pstate, u32 pvtx, u32 ptri, u32 pcol)
 		}
 	}
 
-	drawer.drawDMATriangles(pVtx - drawer.getDMAVerticesData());
+	drawer.drawDMATriangles(static_cast<u32>(pVtx - drawer.getDMAVerticesData()));
 }
 
 void RunT3DUX()
 {
-	u32 pstate;
-	do {
+	while (true) {
 		u32 addr = RSP.PC[RSP.PCi] >> 2;
 		const u32 pgstate = ((u32*)RDRAM)[addr++];
-		pstate = ((u32*)RDRAM)[addr++];
+		const u32 pstate = ((u32*)RDRAM)[addr++];
 		const u32 pvtx = ((u32*)RDRAM)[addr++];
 		const u32 ptri = ((u32*)RDRAM)[addr++];
 		const u32 pcol = ((u32*)RDRAM)[addr++];
@@ -227,5 +229,5 @@ void RunT3DUX()
 		T3DUX_LoadObject(pstate, pvtx, ptri, pcol);
 		// Go to the next instruction
 		RSP.PC[RSP.PCi] += 24;
-	} while (pstate != 0);
+	};
 }

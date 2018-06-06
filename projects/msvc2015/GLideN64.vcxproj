@@ -46,7 +46,6 @@
     <ProjectGuid>{37D31D7F-C4E7-45B0-AEF6-D6824A243CF7}</ProjectGuid>
     <RootNamespace>GLideN64</RootNamespace>
     <Keyword>Win32Proj</Keyword>
-    <WindowsTargetPlatformVersion>8.1</WindowsTargetPlatformVersion>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'" Label="Configuration">
@@ -218,7 +217,7 @@
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <ClCompile>
       <Optimization>Disabled</Optimization>
-      <PreprocessorDefinitions>DEBUG_DUMP;UNICODE;GL_USE_UNIFORMBLOCK;TXFILTER_LIB;WIN32_ASM;OS_WINDOWS;_USRDLL;_CRT_SECURE_NO_WARNINGS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>GL_DEBUG;DEBUG_DUMP;UNICODE;GL_USE_UNIFORMBLOCK;TXFILTER_LIB;WIN32_ASM;OS_WINDOWS;_USRDLL;_CRT_SECURE_NO_WARNINGS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <MinimalRebuild>false</MinimalRebuild>
       <BasicRuntimeChecks>EnableFastChecks</BasicRuntimeChecks>
       <RuntimeLibrary>MultiThreadedDebug</RuntimeLibrary>
@@ -291,7 +290,7 @@ copy /Y "$(ProjectDir)$(OutDir)$(TargetName).*" "$(N64PluginsDir)"
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug_mupenplus|Win32'">
     <ClCompile>
       <Optimization>Disabled</Optimization>
-      <PreprocessorDefinitions>DEBUG_DUMP;UNICODE;TXFILTER_LIB;MUPENPLUSAPI;WIN32;WIN32_ASM;OS_WINDOWS;_USRDLL;_CRT_SECURE_NO_WARNINGS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>GL_DEBUG;DEBUG_DUMP;UNICODE;TXFILTER_LIB;MUPENPLUSAPI;WIN32;WIN32_ASM;OS_WINDOWS;_USRDLL;_CRT_SECURE_NO_WARNINGS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <MinimalRebuild>false</MinimalRebuild>
       <BasicRuntimeChecks>EnableFastChecks</BasicRuntimeChecks>
       <RuntimeLibrary>MultiThreadedDebug</RuntimeLibrary>
@@ -724,6 +723,7 @@ copy /Y "$(ProjectDir)$(OutDir)$(TargetName).*" "$(N64PluginsDir)"</Command>
     <ClCompile Include="..\..\src\uCodes\T3DUX.cpp" />
     <ClCompile Include="..\..\src\uCodes\Turbo3D.cpp" />
     <ClCompile Include="..\..\src\uCodes\ZSort.cpp" />
+    <ClCompile Include="..\..\src\uCodes\ZSortBOSS.cpp" />
     <ClCompile Include="..\..\src\VI.cpp" />
     <ClCompile Include="..\..\src\windows\CommonAPIImpl_windows.cpp">
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug_mupenplus|Win32'">true</ExcludedFromBuild>
@@ -875,6 +875,7 @@ copy /Y "$(ProjectDir)$(OutDir)$(TargetName).*" "$(N64PluginsDir)"</Command>
     <ClInclude Include="..\..\src\uCodes\T3DUX.h" />
     <ClInclude Include="..\..\src\uCodes\Turbo3D.h" />
     <ClInclude Include="..\..\src\uCodes\ZSort.h" />
+    <ClInclude Include="..\..\src\uCodes\ZSortBOSS.h" />
     <ClInclude Include="..\..\src\VI.h" />
     <ClInclude Include="..\..\src\windows\GLideN64_windows.h" />
     <ClInclude Include="..\..\src\wst.h" />

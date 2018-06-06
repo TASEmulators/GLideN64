@@ -9,6 +9,7 @@ option(PANDORA "Set to ON if targeting an OpenPandora" ${PANDORA})
 option(ODROID "Set to ON if targeting an Odroid" ${ODROID})
 option(MUPENPLUSAPI "Set to ON for Mupen64Plus plugin" ${MUPENPLUSAPI})
 option(MESA "Set to ON to disable Raspberry Pi autodetection" ${MESA})
+option(VERO4K "Set to ON if targeting a Vero4k" ${VERO4K})
 
 project( GLideN64 )
 
@@ -103,6 +104,7 @@ set(GLideN64_SOURCES
   uCodes/T3DUX.cpp
   uCodes/Turbo3D.cpp
   uCodes/ZSort.cpp
+  uCodes/ZSortBOSS.cpp
 )
 
 #check if we're running on Raspberry Pi
@@ -231,6 +233,12 @@ if(ODROID)
    )
 endif(ODROID)
 
+if(VERO4K)
+  add_definitions(
+  -DVERO4K
+   )
+endif(VERO4K)
+
 if(UNIX OR BCMHOST)
   SET( FREETYPE_INCLUDE_DIRS "/usr/include/freetype2/" )
 else(UNIX OR BCMHOST)
@@ -341,7 +349,7 @@ if( CMAKE_BUILD_TYPE STREQUAL "Debug")
 	PROPERTIES
 	LINKER_LANGUAGE CXX # Or else we get an error message, because cmake can't figure out from the ".o"-suffix that it is a C-linker we need.
 	PREFIX ""
-	LIBRARY_OUTPUT_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/plugin/debug
+	LIBRARY_OUTPUT_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/plugin/Debug
   )
 
   if(SDL)
@@ -374,7 +382,7 @@ if( CMAKE_BUILD_TYPE STREQUAL "Release")
 	PROPERTIES
 	LINKER_LANGUAGE CXX # Or else we get an error message, because cmake can't figure out from the ".o"-suffix that it is a C-linker we need.
 	PREFIX ""
-	LIBRARY_OUTPUT_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/plugin/release
+	LIBRARY_OUTPUT_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/plugin/Release
   )
 
   if(SDL)

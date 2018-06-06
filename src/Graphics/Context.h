@@ -17,13 +17,21 @@ namespace graphics {
 
 	enum class SpecialFeatures {
 		Multisampling,
-		NearPlaneClipping,
-		FragmentDepthWrite,
 		BlitFramebuffer,
 		WeakBlitFramebuffer,
 		DepthFramebufferTextures,
 		ShaderProgramBinary,
-		ImageTextures
+		ImageTextures,
+		IntegerTextures,
+		ClipControl,
+		FramebufferFetch,
+		TextureBarrier
+	};
+
+	enum class ClampMode {
+		ClippingEnabled,
+		NoNearPlaneClipping,
+		NoClipping
 	};
 
 	class ContextImpl;
@@ -39,7 +47,13 @@ namespace graphics {
 
 		void destroy();
 
+		void setClampMode(ClampMode _mode);
+
+		ClampMode getClampMode();
+
 		void enable(EnableParam _parameter, bool _enable);
+
+		u32 isEnabled(EnableParam _parameter);
 
 		void cullFace(CullModeParam _mode);
 
@@ -69,7 +83,6 @@ namespace graphics {
 
 		struct InitTextureParams {
 			ObjectHandle handle;
-			ImageUnitParam ImageUnit;
 			TextureUnitParam textureUnitIndex{0};
 			u32 msaaLevel = 0;
 			u32 width = 0;
@@ -86,7 +99,6 @@ namespace graphics {
 
 		struct UpdateTextureDataParams {
 			ObjectHandle handle;
-			ImageUnitParam ImageUnit;
 			TextureUnitParam textureUnitIndex{0};
 			u32 x = 0;
 			u32 y = 0;
@@ -140,6 +152,8 @@ namespace graphics {
 
 		u32 convertInternalTextureFormat(u32 _format) const;
 
+		void textureBarrier();
+
 		/*---------------Framebuffer-------------*/
 
 		const FramebufferTextureFormats & getFramebufferTextureFormats();
@@ -190,9 +204,9 @@ namespace graphics {
 
 		bool blitFramebuffers(const BlitFramebuffersParams & _params);
 
-		/*---------------Pixelbuffer-------------*/
+		void setDrawBuffers(u32 _num);
 
-		PixelWriteBuffer * createPixelWriteBuffer(size_t _sizeInBytes);
+		/*---------------Pixelbuffer-------------*/
 
 		PixelReadBuffer * createPixelReadBuffer(size_t _sizeInBytes);
 
@@ -259,14 +273,20 @@ namespace graphics {
 
 		/*---------------Misc-------------*/
 
-		bool isSupported(SpecialFeatures _feature) const;
-
 		bool isError() const;
 
 		bool isFramebufferError() const;
 
-		static bool imageTextures;
-		static bool multisampling;
+		static bool Multisampling;
+		static bool BlitFramebuffer;
+		static bool WeakBlitFramebuffer;
+		static bool DepthFramebufferTextures;
+		static bool ShaderProgramBinary;
+		static bool ImageTextures;
+		static bool IntegerTextures;
+		static bool ClipControl;
+		static bool FramebufferFetch;
+		static bool TextureBarrier;
 
 	private:
 		std::unique_ptr<ContextImpl> m_impl;

@@ -320,7 +320,7 @@ ShaderProgram * CombinerInfo::getTexrectCopyProgram()
 
 bool CombinerInfo::isShaderCacheSupported() const
 {
-	return config.generalEmulation.enableShadersStorage != 0 && gfxContext.isSupported(SpecialFeatures::ShaderProgramBinary);
+	return config.generalEmulation.enableShadersStorage != 0 && Context::ShaderProgramBinary;
 }
 
 void CombinerInfo::setPolygonMode(DrawingState _drawingState)
@@ -347,7 +347,7 @@ void CombinerInfo::_saveShadersStorage() const
 bool CombinerInfo::_loadShadersStorage()
 {
 	if (gfxContext.loadShadersStorage(m_combiners)) {
-		m_shadersLoaded = m_combiners.size();
+		m_shadersLoaded = static_cast<u32>(m_combiners.size());
 		return true;
 	}
 

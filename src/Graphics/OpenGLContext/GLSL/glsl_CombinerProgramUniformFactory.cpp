@@ -1,6 +1,7 @@
 #include <Config.h>
 #include "glsl_CombinerProgramUniformFactory.h"
 #include <Graphics/Parameters.h>
+#include <Graphics/Context.h>
 
 #include <Textures.h>
 #include <NoiseTexture.h>
@@ -138,6 +139,22 @@ public:
 
 private:
 	iUniform uDepthTex;
+};
+
+class UZLutTexture : public UniformGroup
+{
+public:
+	UZLutTexture(GLuint _program) {
+		LocateUniform(uZlutImage);
+	}
+
+	void update(bool _force) override
+	{
+		uZlutImage.set(int(graphics::textureIndices::ZLUTTex), _force);
+	}
+
+private:
+	iUniform uZlutImage;
 };
 
 class UTextures : public UniformGroup
@@ -306,12 +323,6 @@ public:
 
 	void update(bool _force) override
 	{
-		if ((gDP.otherMode.l & 0xFFFF0000) == 0x01500000) {
-			uForceBlendCycle1.set(0, _force);
-			uForceBlendCycle2.set(0, _force);
-			return;
-		}
-
 		uBlendMux1.set(gDP.otherMode.c1_m1a,
 			gDP.otherMode.c1_m1b,
 			gDP.otherMode.c1_m2a,
@@ -328,6 +339,31 @@ public:
 		uForceBlendCycle1.set(forceBlend1, _force);
 		const int forceBlend2 = gDP.otherMode.forceBlender;
 		uForceBlendCycle2.set(forceBlend2, _force);
+
+		// Modes, which shader blender can't emulate
+		const u32 mode = _SHIFTR(gDP.otherMode.l, 16, 16);
+		switch (mode) {
+		case 0x0040:
+			// Mia Hamm Soccer
+			// clr_in * a_in + clr_mem * (1-a)
+			// clr_in * a_in + clr_in * (1-a)
+		case 0x0050:
+			// A Bug's Life
+			// clr_in * a_in + clr_mem * (1-a)
+			// clr_in * a_in + clr_mem * (1-a)
+			uForceBlendCycle1.set(0, _force);
+			uForceBlendCycle2.set(0, _force);
+			break;
+		case 0x0150:
+			// Tony Hawk
+			// clr_in * a_in + clr_mem * (1-a)
+			// clr_in * a_fog + clr_mem * (1-a_fog)
+			if ((config.generalEmulation.hacks & hack_TonyHawk) != 0) {
+				uForceBlendCycle1.set(0, _force);
+				uForceBlendCycle2.set(0, _force);
+			}
+			break;
+		}
 	}
 
 private:
@@ -383,6 +419,11 @@ public:
 
 	void update(bool _force) override
 	{
+		if (dwnd().getDrawer().isTexrectDrawerMode()) {
+			uScreenScale.set(1.0f, 1.0f, _force);
+			return;
+		}
+
 		FrameBuffer * pBuffer = frameBufferList().getCurrent();
 		if (pBuffer == nullptr)
 			uScreenScale.set(dwnd().getScaleX(), dwnd().getScaleY(), _force);
@@ -628,6 +669,53 @@ public:
 private:
 	iUniform uRenderTarget;
 };
+
+class UClampMode : public UniformGroup
+{
+public:
+	UClampMode(GLuint _program) {
+		LocateUniform(uClampMode);
+	}
+
+	void update(bool _force) override
+	{
+		int clampMode = -1;
+		switch (gfxContext.getClampMode())
+		{
+		case graphics::ClampMode::ClippingEnabled:
+			clampMode = 0;
+			break;
+		case graphics::ClampMode::NoNearPlaneClipping:
+			clampMode = 1;
+			break;
+		case graphics::ClampMode::NoClipping:
+			clampMode = 2;
+			break;
+		}
+		uClampMode.set(clampMode, _force);
+	}
+
+private:
+	iUniform uClampMode;
+};
+
+class UPolygonOffset : public UniformGroup
+{
+public:
+	UPolygonOffset(GLuint _program) {
+		LocateUniform(uPolygonOffset);
+	}
+
+	void update(bool _force) override
+	{
+		f32 offset = gfxContext.isEnabled(graphics::enable::POLYGON_OFFSET_FILL) ? 0.003f : 0.0f;
+		uPolygonOffset.set(offset, _force);
+	}
+
+private:
+	fUniform uPolygonOffset;
+};
+
 
 class UScreenCoordsScale : public UniformGroup
 {
@@ -890,6 +978,9 @@ void CombinerProgramUniformFactory::buildUniforms(GLuint _program,
 
 	_uniforms.emplace_back(new UAlphaTestInfo(_program));
 
+	if ((config.generalEmulation.hacks & hack_RE2) != 0 && config.generalEmulation.enableFragmentDepthWrite != 0)
+		_uniforms.emplace_back(new UZLutTexture(_program));
+
 	if (config.frameBufferEmulation.N64DepthCompare != 0)
 		_uniforms.emplace_back(new UDepthInfo(_program));
 	else
@@ -898,6 +989,11 @@ void CombinerProgramUniformFactory::buildUniforms(GLuint _program,
 	if (config.generalEmulation.enableFragmentDepthWrite != 0 ||
 		config.frameBufferEmulation.N64DepthCompare != 0)
 		_uniforms.emplace_back(new URenderTarget(_program));
+
+	if (m_glInfo.isGLESX && m_glInfo.noPerspective) {
+		_uniforms.emplace_back(new UClampMode(_program));
+		_uniforms.emplace_back(new UPolygonOffset(_program));
+	}
 
 	_uniforms.emplace_back(new UScreenCoordsScale(_program));
 

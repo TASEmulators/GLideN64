@@ -54,6 +54,7 @@ void _loadSettings(QSettings & settings)
 	config.frameBufferEmulation.nativeResFactor = settings.value("nativeResFactor", config.frameBufferEmulation.nativeResFactor).toInt();
 	config.frameBufferEmulation.bufferSwapMode = settings.value("bufferSwapMode", config.frameBufferEmulation.bufferSwapMode).toInt();
 	config.frameBufferEmulation.N64DepthCompare = settings.value("N64DepthCompare", config.frameBufferEmulation.N64DepthCompare).toInt();
+	config.frameBufferEmulation.forceDepthBufferClear = settings.value("forceDepthBufferClear", config.frameBufferEmulation.forceDepthBufferClear).toInt();
 	config.frameBufferEmulation.copyAuxToRDRAM = settings.value("copyAuxToRDRAM", config.frameBufferEmulation.copyAuxToRDRAM).toInt();
 	config.frameBufferEmulation.copyToRDRAM = settings.value("copyToRDRAM", config.frameBufferEmulation.copyToRDRAM).toInt();
 	config.frameBufferEmulation.copyDepthToRDRAM = settings.value("copyDepthToRDRAM", config.frameBufferEmulation.copyDepthToRDRAM).toInt();
@@ -109,6 +110,8 @@ void _loadSettings(QSettings & settings)
 	config.onScreenDisplay.fps = settings.value("showFPS", config.onScreenDisplay.fps).toInt();
 	config.onScreenDisplay.vis = settings.value("showVIS", config.onScreenDisplay.vis).toInt();
 	config.onScreenDisplay.percent = settings.value("showPercent", config.onScreenDisplay.percent).toInt();
+	config.onScreenDisplay.internalResolution = settings.value("showInternalResolution", config.onScreenDisplay.internalResolution).toInt();
+	config.onScreenDisplay.renderingResolution = settings.value("showRenderingResolution", config.onScreenDisplay.renderingResolution).toInt();
 	config.onScreenDisplay.pos = settings.value("osdPos", config.onScreenDisplay.pos).toInt();
 	settings.endGroup();
 
@@ -180,6 +183,7 @@ void writeSettings(const QString & _strIniFolder)
 	settings.setValue("nativeResFactor", config.frameBufferEmulation.nativeResFactor);
 	settings.setValue("bufferSwapMode", config.frameBufferEmulation.bufferSwapMode);
 	settings.setValue("N64DepthCompare", config.frameBufferEmulation.N64DepthCompare);
+	settings.setValue("forceDepthBufferClear", config.frameBufferEmulation.forceDepthBufferClear);
 	settings.setValue("copyAuxToRDRAM", config.frameBufferEmulation.copyAuxToRDRAM);
 	settings.setValue("copyFromRDRAM", config.frameBufferEmulation.copyFromRDRAM);
 	settings.setValue("copyToRDRAM", config.frameBufferEmulation.copyToRDRAM);
@@ -222,6 +226,8 @@ void writeSettings(const QString & _strIniFolder)
 	settings.setValue("showFPS", config.onScreenDisplay.fps);
 	settings.setValue("showVIS", config.onScreenDisplay.vis);
 	settings.setValue("showPercent", config.onScreenDisplay.percent);
+	settings.setValue("showInternalResolution", config.onScreenDisplay.internalResolution);
+	settings.setValue("showRenderingResolution", config.onScreenDisplay.renderingResolution);
 	settings.setValue("osdPos", config.onScreenDisplay.pos);
 	settings.endGroup();
 

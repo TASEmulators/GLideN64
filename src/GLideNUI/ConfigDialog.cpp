@@ -166,6 +166,7 @@ void ConfigDialog::_init()
 	ui->RenderFBCheckBox->setChecked(config.frameBufferEmulation.copyFromRDRAM != 0);
 	ui->n64DepthCompareCheckBox->toggle();
 	ui->n64DepthCompareCheckBox->setChecked(config.frameBufferEmulation.N64DepthCompare != 0);
+	ui->forceDepthBufferClearCheckBox->setChecked(config.frameBufferEmulation.forceDepthBufferClear != 0);
 
 	switch (config.frameBufferEmulation.aspect) {
 	case Config::aStretch:
@@ -269,6 +270,8 @@ void ConfigDialog::_init()
 	ui->fpsCheckBox->setChecked(config.onScreenDisplay.fps != 0);
 	ui->visCheckBox->setChecked(config.onScreenDisplay.vis != 0);
 	ui->percentCheckBox->setChecked(config.onScreenDisplay.percent != 0);
+	ui->internalResolutionCheckBox->setChecked(config.onScreenDisplay.internalResolution != 0);
+	ui->renderingResolutionCheckBox->setChecked(config.onScreenDisplay.renderingResolution != 0);
 
 	// Buttons
 	ui->buttonBox->button(QDialogButtonBox::Ok)->setText(tr("OK"));
@@ -412,6 +415,7 @@ void ConfigDialog::accept()
 	config.frameBufferEmulation.copyFromRDRAM = ui->RenderFBCheckBox->isChecked() ? 1 : 0;
 
 	config.frameBufferEmulation.N64DepthCompare = ui->n64DepthCompareCheckBox->isChecked() ? 1 : 0;
+	config.frameBufferEmulation.forceDepthBufferClear = ui->forceDepthBufferClearCheckBox->isChecked() ? 1 : 0;
 
 	if (ui->aspectStretchRadioButton->isChecked())
 		config.frameBufferEmulation.aspect = Config::aStretch;
@@ -494,6 +498,8 @@ void ConfigDialog::accept()
 	config.onScreenDisplay.fps = ui->fpsCheckBox->isChecked() ? 1 : 0;
 	config.onScreenDisplay.vis = ui->visCheckBox->isChecked() ? 1 : 0;
 	config.onScreenDisplay.percent = ui->percentCheckBox->isChecked() ? 1 : 0;
+	config.onScreenDisplay.internalResolution = ui->internalResolutionCheckBox->isChecked() ? 1 : 0;
+	config.onScreenDisplay.renderingResolution = ui->renderingResolutionCheckBox->isChecked() ? 1 : 0;
 
 	config.debug.dumpMode = 0;
 	if (ui->dumpLowCheckBox->isChecked())

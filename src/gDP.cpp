@@ -841,7 +841,7 @@ void gDPTextureRectangle(f32 ulx, f32 uly, f32 lrx, f32 lry, s32 tile, s16 s, s1
 		DebugMsg( DEBUG_NORMAL, "gDPTextureRectangleFlip( %f, %f, %f, %f, %i, %f, %f, %f, %f);\n",
 				  ulx, uly, lrx, lry, tile, s/32.0f, t/32.0f, dsdx, dtdy );
 	else
-		DebugMsg( DEBUG_NORMAL, "gDPTextureRectangle( %f, %f, %f, %f, %i, %i, %f, %f, %f, %f );\n",
+		DebugMsg( DEBUG_NORMAL, "gDPTextureRectangle( %f, %f, %f, %f, %i, %f, %f, %f, %f );\n",
 				  ulx, uly, lrx, lry, tile, s/32.0f, t/32.0f, dsdx, dtdy);
 	gSP.tri_num += 2;
 }
@@ -1192,7 +1192,7 @@ void gDPLLETriangle(u32 _w1, u32 _w2, int _shade, int _texture, int _zbuffer, u3
 	if (_zbuffer != 0)
 		gSP.geometryMode |= G_ZBUFFER;
 
-	drawer.drawScreenSpaceTriangle(vtx - vtx0);
+	drawer.drawScreenSpaceTriangle(static_cast<u32>(vtx - vtx0));
 	gSP.textureTile[0] = textureTileOrg[0];
 	gSP.textureTile[1] = textureTileOrg[1];
 

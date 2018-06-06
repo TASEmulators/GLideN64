@@ -24,7 +24,13 @@ namespace opengl {
 
 		void destroy() override;
 
+		void setClampMode(graphics::ClampMode _mode) override;
+
+		graphics::ClampMode getClampMode() override;
+
 		void enable(graphics::EnableParam _parameter, bool _enable) override;
+
+		u32 isEnabled(graphics::EnableParam _parameter) override;
 
 		void cullFace(graphics::CullModeParam _mode) override;
 
@@ -70,6 +76,8 @@ namespace opengl {
 
 		u32 convertInternalTextureFormat(u32 _format) const override;
 
+		void textureBarrier() override;
+
 		/*---------------Framebuffer-------------*/
 
 		graphics::FramebufferTextureFormats * getFramebufferTextureFormats() override;
@@ -88,9 +96,9 @@ namespace opengl {
 
 		bool blitFramebuffers(const graphics::Context::BlitFramebuffersParams & _params) override;
 
-		/*---------------Pixelbuffer-------------*/
+		void setDrawBuffers(u32 _num) override;
 
-		graphics::PixelWriteBuffer * createPixelWriteBuffer(size_t _sizeInBytes) override;
+		/*---------------Pixelbuffer-------------*/
 
 		graphics::PixelReadBuffer * createPixelReadBuffer(size_t _sizeInBytes) override;
 
@@ -149,7 +157,6 @@ namespace opengl {
 		std::unique_ptr<CreateRenderbuffer> m_createRenderbuffer;
 		std::unique_ptr<InitRenderbuffer> m_initRenderbuffer;
 		std::unique_ptr<AddFramebufferRenderTarget> m_addFramebufferRenderTarget;
-		std::unique_ptr<CreatePixelWriteBuffer> m_createPixelWriteBuffer;
 		std::unique_ptr<CreatePixelReadBuffer> m_createPixelReadBuffer;
 		std::unique_ptr<BlitFramebuffers> m_blitFramebuffers;
 		std::unique_ptr<graphics::FramebufferTextureFormats> m_fbTexFormats;
@@ -159,6 +166,7 @@ namespace opengl {
 		std::unique_ptr<glsl::CombinerProgramBuilder> m_combinerProgramBuilder;
 		std::unique_ptr<glsl::SpecialShadersFactory> m_specialShadersFactory;
 		GLInfo m_glInfo;
+		graphics::ClampMode m_clampMode;
 	};
 
 }

@@ -25,6 +25,11 @@
 
 #include "TextDrawer.h"
 
+#ifdef MUPENPLUSAPI
+#include "mupenplus/GLideN64_mupenplus.h"
+#include <osal_files.h>
+#endif
+
 using namespace graphics;
 
 // Maximum texture width
@@ -106,7 +111,6 @@ struct Atlas {
 		m_pTexture->realWidth = w;
 		m_pTexture->realHeight = h;
 		m_pTexture->textureBytes = m_pTexture->realWidth * m_pTexture->realHeight * fbTexFormats.noiseFormatBytes;
-		textureCache().addFrameBufferTextureSize(m_pTexture->textureBytes);
 
 		Context::InitTextureParams initParams;
 		initParams.handle = m_pTexture->name;
@@ -157,12 +161,14 @@ struct Atlas {
 				ox = 0;
 			}
 
-			updateParams.x = ox;
-			updateParams.y = oy;
-			updateParams.width = g->bitmap.width;
-			updateParams.height = g->bitmap.rows;
-			updateParams.data = g->bitmap.buffer;
-			gfxContext.update2DTexture(updateParams);
+			if (g->bitmap.buffer != nullptr) {
+				updateParams.x = ox;
+				updateParams.y = oy;
+				updateParams.width = g->bitmap.width;
+				updateParams.height = g->bitmap.rows;
+				updateParams.data = g->bitmap.buffer;
+				gfxContext.update2DTexture(updateParams);
+			}
 
 			c[i].ax = _FIXED2FLOAT(g->advance.x, 6);
 			c[i].ay = _FIXED2FLOAT(g->advance.y, 6);
@@ -204,7 +210,14 @@ bool getFontFileName(char * _strName)
 #elif defined (PANDORA)
 	sprintf(_strName, "/usr/share/fonts/truetype/%s", config.font.name.c_str());
 #else
-    sprintf(_strName, "/usr/share/fonts/truetype/freefont/%s", config.font.name.c_str());
+	sprintf(_strName, "/usr/share/fonts/truetype/freefont/%s", config.font.name.c_str());
+#endif
+#ifdef MUPENPLUSAPI
+	if (!osal_path_existsA(_strName)) {
+		const char * fontPath = ConfigGetSharedDataFilepath("font.ttf");
+		if (osal_path_existsA(fontPath))
+			strncpy(_strName, fontPath, PLUGIN_PATH_SIZE);
+	}
 #endif
 	return true;
 }
@@ -344,7 +357,7 @@ void TextDrawer::drawText(const char *_pText, float _x, float _y) const
 
 	Context::DrawRectParameters rectParams;
 	rectParams.mode = drawmode::TRIANGLES;
-	rectParams.verticesCount = coords.size();
+	rectParams.verticesCount = static_cast<u32>(coords.size());
 	rectParams.vertices = coords.data();
 	rectParams.combiner = m_program.get();
 	gfxContext.drawRects(rectParams);
@@ -359,7 +372,7 @@ void TextDrawer::getTextSize(const char *_pText, float & _w, float & _h) const
 	DisplayWindow & wnd = DisplayWindow::get();
 	const float sx = 2.0f / wnd.getWidth();
 	const float sy = 2.0f / wnd.getHeight();
-	float bw, bh = 0;
+	float bw = 0, bh = 0;
 
 	for (const u8 *p = (const u8 *)_pText; *p; ++p) {
 		bw = m_atlas->c[*p].bw * sx;
