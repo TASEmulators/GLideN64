@@ -215,6 +215,8 @@ bool getFontFileName(char * _strName)
 #ifdef MUPENPLUSAPI
 	if (!osal_path_existsA(_strName)) {
 		const char * fontPath = ConfigGetSharedDataFilepath("font.ttf");
+		if (fontPath == nullptr)
+			return false;
 		if (osal_path_existsA(fontPath))
 			strncpy(_strName, fontPath, PLUGIN_PATH_SIZE);
 	}
