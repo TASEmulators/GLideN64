@@ -62,11 +62,18 @@ void _ProcessDList()
 }
 
 static
-void _ProcessDListSWRS()
+void _ProcessDListFactor5()
 {
 	// Lemmy's note: read first 64 bits of this dlist
-	RSP.swDL[0] = _SHIFTR(*(u32*)&RDRAM[RSP.PC[0]], 0, 24);
+	RSP.F5DL[0] = _SHIFTR(*(u32*)&RDRAM[RSP.PC[0]], 0, 24);
 	RSP.PC[0] += 8;
+
+	static u32 vAddrToClear[7] = { 0x11C >> 2, 0x120 >> 2, 0x124 >> 2, 0x37C >> 2,
+		0x58C >> 2, 0x5B0 >> 2, 0x5B4 >> 2};
+	u32 * pDmem32 = reinterpret_cast<u32*>(DMEM);
+	for (u32 i = 0; i < 7; ++i)
+		pDmem32[vAddrToClear[i]] = 0U;
+
 	while (!RSP.halt) {
 		if ((RSP.PC[RSP.PCi] + 8) > RDRAMSize) {
 			break;
@@ -163,8 +170,9 @@ void RSP_ProcessDList()
 	case T3DUX:
 		RunT3DUX();
 		break;
-	case F3DSWRS:
-		_ProcessDListSWRS();
+	case F5Rogue:
+	case F5Indi_Naboo:
+		_ProcessDListFactor5();
 		break;
 	default:
 		_ProcessDList();
@@ -299,7 +307,8 @@ void RSP_Init()
 		config.generalEmulation.hacks |= hack_scoreboardJ;
 	else if (strstr(RSP.romname, (const char *)"MarioTennis") != nullptr)
 		config.generalEmulation.hacks |= hack_scoreboard;
-	else if (strstr(RSP.romname, (const char *)"POKEMON STADIUM 2") != nullptr)
+	else if (strstr(RSP.romname, (const char *)"POKEMON STADIUM 2") != nullptr ||
+			 strstr(RSP.romname, (const char *)"Bottom of the 9th") != nullptr)
 		config.generalEmulation.hacks |= hack_texrect_shade_alpha;
 	else if (strstr(RSP.romname, (const char *)"THE LEGEND OF ZELDA") != nullptr ||
 			 strstr(RSP.romname, (const char *)"ZELDA MASTER QUEST") != nullptr)

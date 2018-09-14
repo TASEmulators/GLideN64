@@ -4,7 +4,6 @@
 #include <cmath>
 #include "Platform.h"
 #include "Graphics/Context.h"
-#include "Graphics/Parameters.h"
 #include "DisplayWindow.h"
 #include "SoftwareRender.h"
 #include "GraphicsDrawer.h"
@@ -102,7 +101,9 @@ void GraphicsDrawer::_updateCullFace() const
 	if (gSP.geometryMode & G_CULL_BOTH) {
 		gfxContext.enable(enable::CULL_FACE, true);
 
-		if (gSP.geometryMode & G_CULL_BACK)
+		if ((gSP.geometryMode & G_CULL_BOTH) == G_CULL_BOTH)
+			gfxContext.cullFace(cullMode::FRONT_AND_BACK);
+		else if ((gSP.geometryMode & G_CULL_BACK) == G_CULL_BACK)
 			gfxContext.cullFace(cullMode::BACK);
 		else
 			gfxContext.cullFace(cullMode::FRONT);
@@ -758,7 +759,7 @@ void GraphicsDrawer::drawTriangles()
 	triangles.maxElement = 0;
 }
 
-void GraphicsDrawer::drawScreenSpaceTriangle(u32 _numVtx)
+void GraphicsDrawer::drawScreenSpaceTriangle(u32 _numVtx, graphics::DrawModeParam _mode)
 {
 	if (_numVtx == 0 || !_canDraw())
 		return;
@@ -776,13 +777,14 @@ void GraphicsDrawer::drawScreenSpaceTriangle(u32 _numVtx)
 	gfxContext.enable(enable::CULL_FACE, false);
 
 	Context::DrawTriangleParameters triParams;
-	triParams.mode = drawmode::TRIANGLE_STRIP;
+	triParams.mode = _mode;
 	triParams.flatColors = m_bFlatColors;
 	triParams.verticesCount = _numVtx;
 	triParams.vertices = m_dmaVertices.data();
 	triParams.combiner = currentCombiner();
 	gfxContext.drawTriangles(triParams);
 	g_debugger.addTriangles(triParams);
+	m_dmaVerticesNum = 0;
 
 	frameBufferList().setBufferChanged(maxY);
 	gSP.changed |= CHANGED_GEOMETRYMODE;
@@ -1339,31 +1341,29 @@ void GraphicsDrawer::drawTexturedRect(const TexturedRectParams & _params)
 			m_rect[i].x *= scale;
 	}
 
-	if (bUseTexrectDrawer)
-		m_texrectDrawer.add();
-	else {
-		_updateScreenCoordsViewport();
+	if (bUseTexrectDrawer && m_texrectDrawer.add())
+		return;
 
-		Context::DrawRectParameters rectParams;
-		rectParams.mode = drawmode::TRIANGLE_STRIP;
-		rectParams.verticesCount = 4;
-		rectParams.vertices = m_rect;
-		rectParams.combiner = currentCombiner();
-		gfxContext.drawRects(rectParams);
-		if (g_debugger.isCaptureMode()) {
-			m_rect[0].x = _params.ulx;
-			m_rect[0].y = _params.uly;
-			m_rect[1].x = _params.lrx;
-			m_rect[1].y = _params.uly;
-			m_rect[2].x = _params.ulx;
-			m_rect[2].y = _params.lry;
-			m_rect[3].x = _params.lrx;
-			m_rect[3].y = _params.lry;
-			g_debugger.addRects(rectParams);
-		}
-
-		gSP.changed |= CHANGED_GEOMETRYMODE | CHANGED_VIEWPORT;
+	_updateScreenCoordsViewport();
+	Context::DrawRectParameters rectParams;
+	rectParams.mode = drawmode::TRIANGLE_STRIP;
+	rectParams.verticesCount = 4;
+	rectParams.vertices = m_rect;
+	rectParams.combiner = currentCombiner();
+	gfxContext.drawRects(rectParams);
+	if (g_debugger.isCaptureMode()) {
+		m_rect[0].x = _params.ulx;
+		m_rect[0].y = _params.uly;
+		m_rect[1].x = _params.lrx;
+		m_rect[1].y = _params.uly;
+		m_rect[2].x = _params.ulx;
+		m_rect[2].y = _params.lry;
+		m_rect[3].x = _params.lrx;
+		m_rect[3].y = _params.lry;
+		g_debugger.addRects(rectParams);
 	}
+
+	gSP.changed |= CHANGED_GEOMETRYMODE | CHANGED_VIEWPORT;
 }
 
 void GraphicsDrawer::correctTexturedRectParams(TexturedRectParams & _params)
@@ -1644,6 +1644,12 @@ void GraphicsDrawer::blitOrCopyTexturedRect(const BlitOrCopyRectParams & _params
 	blitParams.dstY1 = _params.dstY1;
 	blitParams.mask = _params.mask;
 	blitParams.filter = _params.filter;
+	if (_params.invertX) {
+		std::swap(blitParams.srcX0, blitParams.srcX1);
+	}
+	if (_params.invertY) {
+		std::swap(blitParams.srcY0, blitParams.srcY1);
+	}
 
 	if (gfxContext.blitFramebuffers(blitParams))
 		return;

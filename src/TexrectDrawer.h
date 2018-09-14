@@ -17,7 +17,7 @@ public:
 
 	void init();
 	void destroy();
-	void add();
+	bool add();
 	bool draw();
 	bool isEmpty() const;
 	bool canContinue() const;
@@ -25,11 +25,13 @@ public:
 private:
 	void _setViewport() const;
 	void _setDrawBuffer();
+	bool _lookAhead(bool _checkCoordinates) const;
 
 	u32 m_numRects;
 	u64 m_otherMode;
 	u64 m_mux;
 	f32 m_ulx, m_lrx, m_uly, m_lry, m_Z;
+	s32 m_ulx_i, m_uly_i, m_lry_i;
 	f32 m_max_lrx, m_max_lry;
 	f32 m_stepY;
 	f32 m_stepX;
@@ -41,9 +43,15 @@ private:
 	std::unique_ptr<graphics::ShaderProgram> m_programClear;
 
 	struct RectCoords {
-		f32 x, y;
+		s32 x, y;
 	};
 	std::vector<RectCoords> m_vecRectCoords;
+
+	struct iRect {
+		s32 ulx, uly, lrx, lry;
+	};
+	iRect _getiRect(u32 w0, u32 w1) const;
+	iRect m_curRect;
 };
 
 #endif // TEXRECTDRAWER_H

@@ -85,6 +85,7 @@ MY_LOCAL_SRC_FILES :=                                                           
     $(SRCDIR)/Graphics/OpenGLContext/GLSL/glsl_CombinerProgramBuilder.cpp          \
     $(SRCDIR)/Graphics/OpenGLContext/GLSL/glsl_CombinerProgramImpl.cpp             \
     $(SRCDIR)/Graphics/OpenGLContext/GLSL/glsl_CombinerProgramUniformFactory.cpp   \
+    $(SRCDIR)/Graphics/OpenGLContext/GLSL/glsl_FXAA.cpp                            \
     $(SRCDIR)/Graphics/OpenGLContext/GLSL/glsl_ShaderStorage.cpp                   \
     $(SRCDIR)/Graphics/OpenGLContext/GLSL/glsl_SpecialShadersFactory.cpp           \
     $(SRCDIR)/Graphics/OpenGLContext/GLSL/glsl_Utils.cpp                           \
@@ -104,7 +105,8 @@ MY_LOCAL_SRC_FILES :=                                                           
     $(SRCDIR)/uCodes/F3DGOLDEN.cpp                                                 \
     $(SRCDIR)/uCodes/F3DPD.cpp                                                     \
     $(SRCDIR)/uCodes/F3DSETA.cpp                                                   \
-    $(SRCDIR)/uCodes/F3DSWRS.cpp                                                   \
+    $(SRCDIR)/uCodes/F5Indi_Naboo.cpp                                              \
+    $(SRCDIR)/uCodes/F5Rogue.cpp                                                    \
     $(SRCDIR)/uCodes/F3DTEXA.cpp                                                   \
     $(SRCDIR)/uCodes/L3D.cpp                                                       \
     $(SRCDIR)/uCodes/L3DEX2.cpp                                                    \

@@ -78,6 +78,7 @@ set(GLideN64_SOURCES
   Graphics/OpenGLContext/GLSL/glsl_CombinerProgramBuilder.cpp
   Graphics/OpenGLContext/GLSL/glsl_CombinerProgramImpl.cpp
   Graphics/OpenGLContext/GLSL/glsl_CombinerProgramUniformFactory.cpp
+  Graphics/OpenGLContext/GLSL/glsl_FXAA.cpp
   Graphics/OpenGLContext/GLSL/glsl_ShaderStorage.cpp
   Graphics/OpenGLContext/GLSL/glsl_SpecialShadersFactory.cpp
   Graphics/OpenGLContext/GLSL/glsl_Utils.cpp
@@ -92,10 +93,11 @@ set(GLideN64_SOURCES
   uCodes/F3DZEX2.cpp
   uCodes/F3DFLX2.cpp
   uCodes/F3DGOLDEN.cpp
-  uCodes/F3DSWRS.cpp
   uCodes/F3DTEXA.cpp
   uCodes/F3DPD.cpp
   uCodes/F3DSETA.cpp
+  uCodes/F5Indi_Naboo.cpp
+  uCodes/F5Rogue.cpp
   uCodes/L3D.cpp
   uCodes/L3DEX2.cpp
   uCodes/L3DEX.cpp
