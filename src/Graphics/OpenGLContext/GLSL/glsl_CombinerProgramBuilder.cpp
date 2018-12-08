@@ -1016,15 +1016,23 @@ public:
 					shaderPart +=
 						"#define TEX_OFFSET(off, tex, texCoord) texture(tex, texCoord - (off)/texSize)									\n"
 						"#define TEX_FILTER(name, tex, texCoord)												\\\n"
-						"  {																					\\\n"
+						"{																						\\\n"
 						"  mediump vec2 texSize = vec2(textureSize(tex,0));										\\\n"
 						"  mediump vec2 offset = fract(texCoord*texSize - vec2(0.5));							\\\n"
 						"  offset -= step(1.0, offset.x + offset.y);											\\\n"
 						"  lowp vec4 c0 = TEX_OFFSET(offset, tex, texCoord);									\\\n"
 						"  lowp vec4 c1 = TEX_OFFSET(vec2(offset.x - sign(offset.x), offset.y), tex, texCoord);	\\\n"
 						"  lowp vec4 c2 = TEX_OFFSET(vec2(offset.x, offset.y - sign(offset.y)), tex, texCoord);	\\\n"
-						"  name = c0 + abs(offset.x)*(c1-c0) + abs(offset.y)*(c2-c0); 							\\\n"
-						"  }																					\n"
+						"																						\\\n"
+						"  if(uEnableAlphaTest == 1 || uCvgXAlpha == 1){										\\\n" // Calculate premultiplied color values
+						"    c0.rgb *= c0.a;																	\\\n"
+						"    c1.rgb *= c1.a;																	\\\n"
+						"    c2.rgb *= c2.a;																	\\\n"
+						"    name = c0 + abs(offset.x)*(c1-c0) + abs(offset.y)*(c2-c0); 						\\\n"
+						"    name.rgb /= name.a;																\\\n" // Divide alpha to get actual color value
+						"  }																					\\\n"
+						"  else name = c0 + abs(offset.x)*(c1-c0) + abs(offset.y)*(c2-c0); 						\\\n"
+						"}																						\n"
 						;
 				} else {
 					shaderPart +=
@@ -1042,10 +1050,24 @@ public:
 						"  lowp vec4 p0q1 = TEX_OFFSET(vec2(offset.x, offset.y - sign(offset.y)), tex, texCoord);						\\\n"
 						"  lowp vec4 p1q1 = TEX_OFFSET(vec2(offset.x - sign(offset.x), offset.y - sign(offset.y)), tex, texCoord);		\\\n"
 						"																												\\\n"
-						"  mediump vec2 interpolationFactor = abs(offset);																\\\n"
-						"  lowp vec4 pInterp_q0 = mix( p0q0, p1q0, interpolationFactor.x ); 											\\\n" // Interpolates top row in X direction.
-						"  lowp vec4 pInterp_q1 = mix( p0q1, p1q1, interpolationFactor.x ); 											\\\n" // Interpolates bottom row in X direction.
-						"  name = mix( pInterp_q0, pInterp_q1, interpolationFactor.y ); 												\\\n" // Interpolate in Y direction.
+						"  if(uEnableAlphaTest == 1 || uCvgXAlpha == 1){																\\\n" // Calculate premultiplied color values
+						"    p0q0.rgb *= p0q0.a;																						\\\n"
+						"    p1q0.rgb *= p1q0.a;																						\\\n"
+						"    p0q1.rgb *= p0q1.a;																						\\\n"
+						"    p1q1.rgb *= p1q1.a;																						\\\n"
+						"																												\\\n"
+						"    mediump vec2 interpolationFactor = abs(offset);															\\\n"
+						"    lowp vec4 pInterp_q0 = mix( p0q0, p1q0, interpolationFactor.x ); 											\\\n" // Interpolates top row in X direction.
+						"    lowp vec4 pInterp_q1 = mix( p0q1, p1q1, interpolationFactor.x ); 											\\\n" // Interpolates bottom row in X direction.
+						"    name = mix( pInterp_q0, pInterp_q1, interpolationFactor.y ); 												\\\n" // Interpolate in Y direction.
+						"    name.rgb /= name.a;																						\\\n" // Divide alpha to get actual color value
+						"  }																											\\\n"
+						"  else{																										\\\n"
+						"    mediump vec2 interpolationFactor = abs(offset);															\\\n"
+						"    lowp vec4 pInterp_q0 = mix( p0q0, p1q0, interpolationFactor.x ); 											\\\n" // Interpolates top row in X direction.
+						"    lowp vec4 pInterp_q1 = mix( p0q1, p1q1, interpolationFactor.x ); 											\\\n" // Interpolates bottom row in X direction.
+						"    name = mix( pInterp_q0, pInterp_q1, interpolationFactor.y ); 												\\\n" // Interpolate in Y direction.
+						"  }																											\\\n"
 						"}																												\n"
 						;
 				}
