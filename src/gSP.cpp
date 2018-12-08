@@ -1,7 +1,8 @@
-#include <stdio.h>
 #include <math.h>
-#include <algorithm>
+#include <stdio.h>
+#include <string.h>
 #include <assert.h>
+#include <algorithm>
 #include "N64.h"
 #include "GLideN64.h"
 #include "DebugDump.h"
@@ -12,17 +13,10 @@
 #include "gDP.h"
 #include "3DMath.h"
 #include "CRC.h"
-#include <string.h>
-#include "convert.h"
-#include "uCodes/S2DEX.h"
 #include "VI.h"
 #include "FrameBuffer.h"
-#include "DepthBuffer.h"
 #include "Config.h"
 #include "Log.h"
-
-#include <Graphics/Context.h>
-#include <Graphics/Parameters.h>
 #include "DisplayWindow.h"
 
 using namespace std;
@@ -80,6 +74,10 @@ void gSPTriangle(s32 v0, s32 v1, s32 v2)
 			DebugMsg(DEBUG_NORMAL, "Triangle clipped (%i, %i, %i)\n", v0, v1, v2);
 			return;
 		}
+		if (drawer.isRejected(v0, v1, v2)) {
+			DebugMsg(DEBUG_NORMAL, "Triangle rejected (%i, %i, %i)\n", v0, v1, v2);
+			return;
+		}
 		drawer.addTriangle(v0, v1, v2);
 		DebugMsg(DEBUG_NORMAL, "Triangle #%i added (%i, %i, %i)\n", gSP.tri_num++, v0, v1, v2);
 	}
@@ -134,6 +132,8 @@ void gSPLoadUcodeEx( u32 uc_start, u32 uc_dstart, u16 uc_dsize )
 	gSP.matrix.modelViewi = 0;
 	gSP.changed |= CHANGED_MATRIX | CHANGED_LIGHT | CHANGED_LOOKAT;
 	gSP.status[0] = gSP.status[1] = gSP.status[2] = gSP.status[3] = 0;
+	gSP.fog.multiplier = gSP.fog.offset = 0;
+	gSP.fog.multiplierf = gSP.fog.offsetf = 0.0f;
 
 	if ((((uc_start & 0x1FFFFFFF) + 4096) > RDRAMSize) || (((uc_dstart & 0x1FFFFFFF) + uc_dsize) > RDRAMSize)) {
 		DebugMsg(DEBUG_NORMAL|DEBUG_ERROR, "gSPLoadUcodeEx out of RDRAM\n");
@@ -314,9 +314,9 @@ void gSPLight( u32 l, s32 n )
 	Light *light = (Light*)&RDRAM[addrByte];
 
 	if (n < 8) {
-		gSP.lights.rgb[n][R] = light->r * 0.0039215689f;
-		gSP.lights.rgb[n][G] = light->g * 0.0039215689f;
-		gSP.lights.rgb[n][B] = light->b * 0.0039215689f;
+		gSP.lights.rgb[n][R] = _FIXED2FLOATCOLOR(light->r,8);
+		gSP.lights.rgb[n][G] = _FIXED2FLOATCOLOR(light->g,8);
+		gSP.lights.rgb[n][B] = _FIXED2FLOATCOLOR(light->b,8);
 
 		gSP.lights.xyz[n][X] = light->x;
 		gSP.lights.xyz[n][Y] = light->y;
@@ -518,13 +518,14 @@ void gSPLightVertexCBFD(u32 v, SPVertex * spVtx)
 		f32 r = gSP.lights.rgb[gSP.numLights][R];
 		f32 g = gSP.lights.rgb[gSP.numLights][G];
 		f32 b = gSP.lights.rgb[gSP.numLights][B];
+		f32 recip = FIXED2FLOATRECIP16;
 
 		for (u32 l = 0; l < gSP.numLights; ++l) {
 			const f32 vx = (vtx.x + gSP.vertexCoordMod[8])*gSP.vertexCoordMod[12] - gSP.lights.pos_xyzw[l][X];
 			const f32 vy = (vtx.y + gSP.vertexCoordMod[9])*gSP.vertexCoordMod[13] - gSP.lights.pos_xyzw[l][Y];
 			const f32 vz = (vtx.z + gSP.vertexCoordMod[10])*gSP.vertexCoordMod[14] - gSP.lights.pos_xyzw[l][Z];
 			const f32 vw = (vtx.w + gSP.vertexCoordMod[11])*gSP.vertexCoordMod[15] - gSP.lights.pos_xyzw[l][W];
-			const f32 len = (vx*vx + vy*vy + vz*vz + vw*vw) / 65536.0f;
+			const f32 len = (vx*vx + vy*vy + vz*vz + vw*vw) * recip;
 			f32 intensity = gSP.lights.ca[l] / len;
 			if (intensity > 1.0f) intensity = 1.0f;
 			r += gSP.lights.rgb[l][R] * intensity;
@@ -571,6 +572,7 @@ void gSPPointLightVertexZeldaMM(u32 v, float _vecPos[VNUM][4], SPVertex * spVtx)
 
 		for (u32 l = 0; l < gSP.numLights; ++l) {
 			if (gSP.lights.ca[l] != 0.0f) {
+				f32 recip = FIXED2FLOATRECIP16;
 				// Point lighting
 				f32 lvec[3] = { gSP.lights.pos_xyzw[l][X], gSP.lights.pos_xyzw[l][Y], gSP.lights.pos_xyzw[l][Z] };
 				lvec[0] -= _vecPos[j][0];
@@ -597,7 +599,7 @@ void gSPPointLightVertexZeldaMM(u32 v, float _vecPos[VNUM][4], SPVertex * spVtx)
 					V = 1.0f;
 
 				const f32 KSF = floorf(KS);
-				const f32 D = (KSF * gSP.lights.la[l] * 2.0f + KSF * KSF * gSP.lights.qa[l] / 8.0f) / 65536.0f + 1.0f;
+				const f32 D = (KSF * gSP.lights.la[l] * 2.0f + KSF * KSF * gSP.lights.qa[l] / 8.0f) * recip + 1.0f;
 				intensity = V / D;
 			} else {
 				// Standard lighting
@@ -634,7 +636,7 @@ void gSPPointLightVertexCBFD(u32 v, SPVertex * spVtx)
 				const f32 vy = (vtx.y + gSP.vertexCoordMod[9])*gSP.vertexCoordMod[13] - gSP.lights.pos_xyzw[l][Y];
 				const f32 vz = (vtx.z + gSP.vertexCoordMod[10])*gSP.vertexCoordMod[14] - gSP.lights.pos_xyzw[l][Z];
 				const f32 vw = (vtx.w + gSP.vertexCoordMod[11])*gSP.vertexCoordMod[15] - gSP.lights.pos_xyzw[l][W];
-				const f32 len = (vx*vx + vy*vy + vz*vz + vw*vw) / 65536.0f;
+				const f32 len = _FIXED2FLOAT((vx*vx + vy*vy + vz*vz + vw*vw),16);
 				float p_i = gSP.lights.ca[l] / len;
 				if (p_i > 1.0f) p_i = 1.0f;
 				intensity *= p_i;
@@ -839,6 +841,10 @@ void gSPProcessVertex(u32 v, SPVertex * spVtx)
 						y = fLightDir[1];
 					}
 					if (gSP.geometryMode & G_TEXTURE_GEN_LINEAR) {
+						if (x < -1.0f) x = -1.0f;
+						if (x > 1.0f) x = 1.0f;
+						if (y < -1.0f) y = -1.0f;
+						if (y > 1.0f) y = 1.0f;
 						vtx.s = acosf(-x) * 325.94931f;
 						vtx.t = acosf(-y) * 325.94931f;
 					} else { // G_TEXTURE_GEN
@@ -1144,12 +1150,12 @@ u32 gSPLoadF3DAMVertexData(const Vertex *orgVtx, SPVertex * spVtx, u32 v0, u32 v
 				vtx.nx = _FIXED2FLOATCOLOR( orgVtx->normal.x, 7 );
 				vtx.ny = _FIXED2FLOATCOLOR( orgVtx->normal.y, 7 );
 				vtx.nz = _FIXED2FLOATCOLOR( orgVtx->normal.z, 7 );
-				vtx.a = orgVtx->color.a * 0.0039215689f;
+				vtx.a = _FIXED2FLOATCOLOR(orgVtx->color.a,8);
 			} else {
-				vtx.r = orgVtx->color.r * 0.0039215689f;
-				vtx.g = orgVtx->color.g * 0.0039215689f;
-				vtx.b = orgVtx->color.b * 0.0039215689f;
-				vtx.a = orgVtx->color.a * 0.0039215689f;
+				vtx.r = _FIXED2FLOATCOLOR(orgVtx->color.r,8);
+				vtx.g = _FIXED2FLOATCOLOR(orgVtx->color.g,8);
+				vtx.b = _FIXED2FLOATCOLOR(orgVtx->color.b,8);
+				vtx.a = _FIXED2FLOATCOLOR(orgVtx->color.a,8);
 			}
 			++orgVtx;
 		}
@@ -1192,9 +1198,9 @@ void gSPF3DAMVertex(u32 a, u32 n, u32 v0)
 }
 
 template <u32 VNUM>
-u32 gSPLoadSWVertexData(const SWVertex *orgVtx, SPVertex * spVtx, u32 v0, u32 vi, u32 n)
+u32 gSPLoadSWVertexData(const SWVertex *orgVtx, SPVertex * spVtx, u32 vi, u32 n)
 {
-	const u32 end = n - (n%VNUM) + v0;
+	const u32 end = n - (n%VNUM);
 	for (; vi < end; vi += VNUM) {
 		for(u32 j = 0; j < VNUM; ++j) {
 			SPVertex & vtx = spVtx[vi+j];
@@ -1212,20 +1218,32 @@ u32 gSPLoadSWVertexData(const SWVertex *orgVtx, SPVertex * spVtx, u32 v0, u32 vi
 	return vi;
 }
 
-void gSPSWVertex(const SWVertex * vertex, u32 n, u32 v0)
+void gSPSWVertex(const SWVertex * vertex, u32 n, const bool * const verticesToProcess)
 {
-	DebugMsg(DEBUG_NORMAL, "gSPSWVertex n = %i, v0 = %i\n", n, v0);
-
-	if ((n + v0) > INDEXMAP_SIZE) {
-		LOG(LOG_ERROR, "Using Vertex outside buffer v0=%i, n=%i\n", v0, n);
-		DebugMsg(DEBUG_NORMAL | DEBUG_ERROR, "//Using Vertex outside buffer v0 = %i, n = %i\n", v0, n);
-		return;
-	}
+	DebugMsg(DEBUG_NORMAL, "gSPSWVertex n = %i\n", n);
 
 	SPVertex * spVtx = dwnd().getDrawer().getVertexPtr(0);
-	u32 i = gSPLoadSWVertexData<VEC_OPT>(vertex, spVtx, v0, v0, n);
-	if (i < n + v0)
-		gSPLoadSWVertexData<1>(vertex + (i - v0), spVtx, v0, i, n);
+	if (verticesToProcess == nullptr) {
+		u32 i = gSPLoadSWVertexData<VEC_OPT>(vertex, spVtx, 0, n);
+		if (i < n)
+			gSPLoadSWVertexData<1>(vertex + i, spVtx, i, n);
+	} else {
+		for (u32 i = 0; i < n; ++i) {
+			if (verticesToProcess[i])
+				gSPLoadSWVertexData<1>(vertex + i, spVtx, i, i + 1);
+		}
+	}
+}
+
+void gSPSWVertex(const SWVertex * vertex, u32 v0, u32 n)
+{
+	DebugMsg(DEBUG_NORMAL, "gSPSWVertex v0 = %i, n = %i\n", v0, n);
+
+	SPVertex * spVtx = dwnd().getDrawer().getVertexPtr(0);
+	const u32 endIdx = v0 + n;
+	u32 i = gSPLoadSWVertexData<VEC_OPT>(vertex, spVtx, v0, endIdx);
+	if (i < endIdx)
+		gSPLoadSWVertexData<1>(vertex + i - v0, spVtx, i, endIdx);
 }
 
 void gSPT3DUXVertex(u32 a, u32 n, u32 ci)
@@ -1561,46 +1579,33 @@ void gSPSegment( s32 seg, s32 base )
 	DebugMsg(DEBUG_NORMAL, "gSPSegment( %s, 0x%08X );\n", SegmentText[seg], base );
 }
 
-void gSPClipRatio( u32 r )
+void gSPClipRatio(u32 ratio)
 {
-	DebugMsg(DEBUG_NORMAL|DEBUG_IGNORED, "gSPClipRatio(%u);\n", r);
+	gSP.clipRatio = std::abs(static_cast<s16>(ratio & 0xFFFF));
+	DebugMsg(DEBUG_NORMAL, "gSPClipRatio(%u);\n", gSP.clipRatio);
 }
 
 void gSPInsertMatrix( u32 where, u32 num )
 {
 	DebugMsg(DEBUG_NORMAL, "gSPInsertMatrix(%u, %u);\n", where, num);
 
-	f32 fraction, integer;
-
 	if ((where & 0x3) || (where > 0x3C))
 		return;
 
-	if (where < 0x20) {
-		fraction = modff( gSP.matrix.combined[0][where >> 1], &integer );
-		gSP.matrix.combined[0][where >> 1] = (f32)((s16)_SHIFTR( num, 16, 16 ) + abs( (int)fraction ));
-
-		fraction = modff( gSP.matrix.combined[0][(where >> 1) + 1], &integer );
-		gSP.matrix.combined[0][(where >> 1) + 1] = (f32)((s16)_SHIFTR( num, 0, 16 ) + abs( (int)fraction ));
-	} else {
-		f32 newValue;
-
-		fraction = modff( gSP.matrix.combined[0][(where - 0x20) >> 1], &integer );
-		newValue = integer + _FIXED2FLOAT( _SHIFTR( num, 16, 16 ), 16);
-
-		// Make sure the sign isn't lost
-		if ((integer == 0.0f) && (fraction != 0.0f))
-			newValue = newValue * (fraction / abs( (int)fraction ));
-
-		gSP.matrix.combined[0][(where - 0x20) >> 1] = newValue;
-
-		fraction = modff( gSP.matrix.combined[0][((where - 0x20) >> 1) + 1], &integer );
-		newValue = integer + _FIXED2FLOAT( _SHIFTR( num, 0, 16 ), 16 );
-
-		// Make sure the sign isn't lost
-		if ((integer == 0.0f) && (fraction != 0.0f))
-			newValue = newValue * (fraction / abs( (int)fraction ));
-
-		gSP.matrix.combined[0][((where - 0x20) >> 1) + 1] = newValue;
+	const u16 * pData = reinterpret_cast<u16*>(&num);
+	const u32 index = (where < 0x20) ? (where >> 1) : ((where - 0x20) >> 1);
+	for (u32 i = 0; i < 2; i++) {
+		if (where < 0x20) {
+			// integer elements of the matrix to be changed
+			const s16 integer = static_cast<s16>(pData[i ^ 1]);
+			const u16 fract = GetIntMatrixElement(gSP.matrix.combined[0][index + i]).second;
+			gSP.matrix.combined[0][index + i] = GetFloatMatrixElement(integer, fract);
+		} else {
+			// fractional elements of the matrix to be changed
+			const s16 integer = GetIntMatrixElement(gSP.matrix.combined[0][index + i]).first;
+			const u16 fract = pData[i ^ 1];
+			gSP.matrix.combined[0][index + i] = GetFloatMatrixElement(integer, fract);
+		}
 	}
 }
 
@@ -1611,10 +1616,10 @@ void gSPModifyVertex( u32 _vtx, u32 _where, u32 _val )
 	SPVertex & vtx0 = drawer.getVertex(_vtx);
 	switch (_where) {
 		case G_MWO_POINT_RGBA:
-			vtx0.r = _SHIFTR( _val, 24, 8 ) * 0.0039215689f;
-			vtx0.g = _SHIFTR( _val, 16, 8 ) * 0.0039215689f;
-			vtx0.b = _SHIFTR( _val, 8, 8 ) * 0.0039215689f;
-			vtx0.a = _SHIFTR( _val, 0, 8 ) * 0.0039215689f;
+			vtx0.r = _FIXED2FLOATCOLOR(_SHIFTR( _val, 24, 8 ),8);
+			vtx0.g = _FIXED2FLOATCOLOR(_SHIFTR( _val, 16, 8 ),8);
+			vtx0.b = _FIXED2FLOATCOLOR(_SHIFTR( _val, 8, 8 ),8);
+			vtx0.a = _FIXED2FLOATCOLOR(_SHIFTR( _val, 0, 8 ),8);
 			vtx0.modify |= MODIFY_RGBA;
 			DebugMsg(DEBUG_NORMAL, "gSPModifyVertex: RGBA(%02f, %02f, %02f, %02f);\n", vtx0.r, vtx0.g, vtx0.b, vtx0.a);
 			break;
@@ -1684,9 +1689,9 @@ void gSPLightColor( u32 lightNum, u32 packedColor )
 
 	if (lightNum < 8)
 	{
-		gSP.lights.rgb[lightNum][R] = _SHIFTR( packedColor, 24, 8 ) * 0.0039215689f;
-		gSP.lights.rgb[lightNum][G] = _SHIFTR( packedColor, 16, 8 ) * 0.0039215689f;
-		gSP.lights.rgb[lightNum][B] = _SHIFTR( packedColor, 8, 8 ) * 0.0039215689f;
+		gSP.lights.rgb[lightNum][R] = _FIXED2FLOATCOLOR(_SHIFTR( packedColor, 24, 8 ),8);
+		gSP.lights.rgb[lightNum][G] = _FIXED2FLOATCOLOR(_SHIFTR( packedColor, 16, 8 ),8);
+		gSP.lights.rgb[lightNum][B] = _FIXED2FLOATCOLOR(_SHIFTR( packedColor, 8, 8 ),8);
 		gSP.changed |= CHANGED_HW_LIGHT;
 	}
 	DebugMsg(DEBUG_NORMAL, "gSPLightColor( %i, 0x%08X );\n", lightNum, packedColor );
@@ -1720,8 +1725,8 @@ void gSPCoordMod(u32 _w0, u32 _w1)
 		gSP.vertexCoordMod[1+idx] = (f32)(s16)_SHIFTR(_w1, 0, 16);
 	} else if (pos == 0x10) {
 		assert(idx < 3);
-		gSP.vertexCoordMod[4+idx] = _SHIFTR(_w1, 16, 16)/65536.0f;
-		gSP.vertexCoordMod[5+idx] = _SHIFTR(_w1, 0, 16)/65536.0f;
+		gSP.vertexCoordMod[4+idx] = _FIXED2FLOAT(_SHIFTR(_w1, 16, 16),16);
+		gSP.vertexCoordMod[5+idx] = _FIXED2FLOAT(_SHIFTR(_w1, 0, 16),16);
 		gSP.vertexCoordMod[12+idx] = gSP.vertexCoordMod[0+idx] + gSP.vertexCoordMod[4+idx];
 		gSP.vertexCoordMod[13+idx] = gSP.vertexCoordMod[1+idx] + gSP.vertexCoordMod[5+idx];
 	} else if (pos == 0x20) {
@@ -1941,504 +1946,18 @@ void gSPSetStatus(u32 sid, u32 val)
 	DebugMsg(DEBUG_NORMAL, "gSPSetStatus sid=%u val=%u\n", sid, val);
 }
 
-void gSPObjLoadTxtr( u32 tx )
-{
-	const u32 address = RSP_SegmentToPhysical( tx );
-	uObjTxtr *objTxtr = (uObjTxtr*)&RDRAM[address];
-
-	if ((gSP.status[objTxtr->block.sid >> 2] & objTxtr->block.mask) != objTxtr->block.flag) {
-		switch (objTxtr->block.type) {
-			case G_OBJLT_TXTRBLOCK:
-				gDPSetTextureImage( 0, 1, 0, objTxtr->block.image );
-				gDPSetTile( 0, 1, 0, objTxtr->block.tmem, 7, 0, 0, 0, 0, 0, 0, 0 );
-				gDPLoadBlock( 7, 0, 0, ((objTxtr->block.tsize + 1) << 3) - 1, objTxtr->block.tline );
-				DebugMsg(DEBUG_NORMAL, "gSPObjLoadTxtr: load block\n");
-				break;
-			case G_OBJLT_TXTRTILE:
-				gDPSetTextureImage( 0, 1, (objTxtr->tile.twidth + 1) << 1, objTxtr->tile.image );
-				gDPSetTile( 0, 1, (objTxtr->tile.twidth + 1) >> 2, objTxtr->tile.tmem, 0, 0, 0, 0, 0, 0, 0, 0 );
-				gDPSetTile( 0, 1, (objTxtr->tile.twidth + 1) >> 2, objTxtr->tile.tmem, 7, 0, 0, 0, 0, 0, 0, 0 );
-				gDPLoadTile( 7, 0, 0, (((objTxtr->tile.twidth + 1) << 1) - 1) << 2, (((objTxtr->tile.theight + 1) >> 2) - 1) << 2 );
-				DebugMsg(DEBUG_NORMAL, "gSPObjLoadTxtr: load tile\n");
-				break;
-			case G_OBJLT_TLUT:
-				gDPSetTextureImage( 0, 2, 1, objTxtr->tlut.image );
-				gDPSetTile( 0, 2, 0, objTxtr->tlut.phead, 7, 0, 0, 0, 0, 0, 0, 0 );
-				gDPLoadTLUT( 7, 0, 0, objTxtr->tlut.pnum << 2, 0 );
-				DebugMsg(DEBUG_NORMAL, "gSPObjLoadTxtr: load tlut\n");
-				break;
-		}
-		gSP.status[objTxtr->block.sid >> 2] = (gSP.status[objTxtr->block.sid >> 2] & ~objTxtr->block.mask) | (objTxtr->block.flag & objTxtr->block.mask);
-	}
-}
-
-static
-void gSPSetSpriteTile(const uObjSprite *_pObjSprite)
-{
-	const u32 w = max(_pObjSprite->imageW >> 5, 1);
-	const u32 h = max(_pObjSprite->imageH >> 5, 1);
-
-	gDPSetTile( _pObjSprite->imageFmt, _pObjSprite->imageSiz, _pObjSprite->imageStride, _pObjSprite->imageAdrs, 0, _pObjSprite->imagePal, G_TX_CLAMP, G_TX_CLAMP, 0, 0, 0, 0 );
-	gDPSetTileSize( 0, 0, 0, (w - 1) << 2, (h - 1) << 2 );
-	gSPTexture( 1.0f, 1.0f, 0, 0, TRUE );
-}
-
-struct ObjData
-{
-	f32 scaleW;
-	f32 scaleH;
-	u32 imageW;
-	u32 imageH;
-	f32 X0;
-	f32 X1;
-	f32 Y0;
-	f32 Y1;
-	bool flipS, flipT;
-	ObjData(const uObjSprite *_pObjSprite)
-	{
-		scaleW = _FIXED2FLOAT(_pObjSprite->scaleW, 10);
-		scaleH = _FIXED2FLOAT(_pObjSprite->scaleH, 10);
-		imageW = _pObjSprite->imageW >> 5;
-		imageH = _pObjSprite->imageH >> 5;
-		X0 = _FIXED2FLOAT(_pObjSprite->objX, 2);
-		X1 = X0 + imageW / scaleW;
-		Y0 = _FIXED2FLOAT(_pObjSprite->objY, 2);
-		Y1 = Y0 + imageH / scaleH;
-		flipS = (_pObjSprite->imageFlags & 0x01) != 0;
-		flipT = (_pObjSprite->imageFlags & 0x10) != 0;
-	}
-};
-
-struct ObjCoordinates
-{
-	f32 ulx, uly, lrx, lry;
-	f32 uls, ult, lrs, lrt;
-	f32 z, w;
-
-	ObjCoordinates(const uObjSprite *_pObjSprite, bool _useMatrix)
-	{
-		ObjData data(_pObjSprite);
-		ulx = data.X0;
-		lrx = data.X1;
-		uly = data.Y0;
-		lry = data.Y1;
-		if (_useMatrix) {
-			ulx = ulx/gSP.objMatrix.baseScaleX + gSP.objMatrix.X;
-			lrx = lrx/gSP.objMatrix.baseScaleX + gSP.objMatrix.X;
-			uly = uly/gSP.objMatrix.baseScaleY + gSP.objMatrix.Y;
-			lry = lry/gSP.objMatrix.baseScaleY + gSP.objMatrix.Y;
-		}
-
-		uls = ult = 0;
-		lrs = (f32)(data.imageW - 1);
-		lrt = (f32)(data.imageH - 1);
-		if (data.flipS) {
-			uls = lrs;
-			lrs = 0;
-		}
-		if (data.flipT) {
-			ult = lrt;
-			lrt = 0;
-		}
-
-		z = (gDP.otherMode.depthSource == G_ZS_PRIM) ? gDP.primDepth.z : gSP.viewport.nearz;
-		w = 1.0f;
-	}
-
-	ObjCoordinates(const uObjScaleBg * _pObjScaleBg)
-	{
-		const f32 frameX = _FIXED2FLOAT(_pObjScaleBg->frameX, 2);
-		const f32 frameY = _FIXED2FLOAT(_pObjScaleBg->frameY, 2);
-		const f32 imageX = gSP.bgImage.imageX;
-		const f32 imageY = gSP.bgImage.imageY;
-		const f32 scaleW = gSP.bgImage.scaleW;
-		const f32 scaleH = gSP.bgImage.scaleH;
-
-		f32 frameW = _FIXED2FLOAT(_pObjScaleBg->frameW, 2);
-		f32 frameH = _FIXED2FLOAT(_pObjScaleBg->frameH, 2);
-		f32 imageW = (f32)(_pObjScaleBg->imageW>>2);
-		f32 imageH = (f32)(_pObjScaleBg->imageH >> 2);
-//		const f32 imageW = (f32)gSP.bgImage.width;
-//		const f32 imageH = (f32)gSP.bgImage.height;
-
-		if (u32(imageW) == 512 && (config.generalEmulation.hacks & hack_RE2) != 0) {
-			const f32 width = f32(*REG.VI_WIDTH);
-			const f32 scale = imageW / width;
-			imageW = width;
-			frameW = width;
-			imageH *= scale;
-			frameH *= scale;
-		}
-
-		ulx = frameX;
-		uly = frameY;
-		lrx = frameX + min(imageW/scaleW, frameW);
-		lry = frameY + min(imageH/scaleH, frameH);
-
-		uls = imageX;
-		ult = imageY;
-		lrs = uls + (lrx - ulx) * scaleW;
-		lrt = ult + (lry - uly) * scaleH;
-		if (gDP.otherMode.cycleType != G_CYC_COPY) {
-			if ((gSP.objRendermode&G_OBJRM_SHRINKSIZE_1) != 0) {
-				lrs -= 1.0f / scaleW;
-				lrt -= 1.0f / scaleH;
-			} else if ((gSP.objRendermode&G_OBJRM_SHRINKSIZE_2) != 0) {
-				lrs -= 1.0f;
-				lrt -= 1.0f;
-			}
-		}
-
-		if ((_pObjScaleBg->imageFlip & 0x01) != 0) {
-			ulx = lrx;
-			lrx = frameX;
-		}
-
-		z = (gDP.otherMode.depthSource == G_ZS_PRIM) ? gDP.primDepth.z : gSP.viewport.nearz;
-		w = 1.0f;
-	}
-};
-
-static
-void gSPDrawObjRect(const ObjCoordinates & _coords)
-{
-	GraphicsDrawer & drawer = dwnd().getDrawer();
-	drawer.setDMAVerticesSize(4);
-	SPVertex * pVtx = drawer.getDMAVerticesData();
-	SPVertex & vtx0 = pVtx[0];
-	vtx0.x = _coords.ulx;
-	vtx0.y = _coords.uly;
-	vtx0.z = _coords.z;
-	vtx0.w = _coords.w;
-	vtx0.s = _coords.uls;
-	vtx0.t = _coords.ult;
-	SPVertex & vtx1 = pVtx[1];
-	vtx1.x = _coords.lrx;
-	vtx1.y = _coords.uly;
-	vtx1.z = _coords.z;
-	vtx1.w = _coords.w;
-	vtx1.s = _coords.lrs;
-	vtx1.t = _coords.ult;
-	SPVertex & vtx2 = pVtx[2];
-	vtx2.x = _coords.ulx;
-	vtx2.y = _coords.lry;
-	vtx2.z = _coords.z;
-	vtx2.w = _coords.w;
-	vtx2.s = _coords.uls;
-	vtx2.t = _coords.lrt;
-	SPVertex & vtx3 = pVtx[3];
-	vtx3.x = _coords.lrx;
-	vtx3.y = _coords.lry;
-	vtx3.z = _coords.z;
-	vtx3.w = _coords.w;
-	vtx3.s = _coords.lrs;
-	vtx3.t = _coords.lrt;
-
-	drawer.drawScreenSpaceTriangle(4);
-}
-
-static
-u16 _YUVtoRGBA(u8 y, u8 u, u8 v)
-{
-	float r = y + (1.370705f * (v - 128));
-	float g = y - (0.698001f * (v - 128)) - (0.337633f * (u - 128));
-	float b = y + (1.732446f * (u - 128));
-	r *= 0.125f;
-	g *= 0.125f;
-	b *= 0.125f;
-	//clipping the result
-	if (r > 32) r = 32;
-	if (g > 32) g = 32;
-	if (b > 32) b = 32;
-	if (r < 0) r = 0;
-	if (g < 0) g = 0;
-	if (b < 0) b = 0;
-
-	u16 c = (u16)(((u16)(r) << 11) |
-		((u16)(g) << 6) |
-		((u16)(b) << 1) | 1);
-	return c;
-}
-
-static
-void _drawYUVImageToFrameBuffer(const ObjCoordinates & _objCoords)
-{
-	const u32 ulx = (u32)_objCoords.ulx;
-	const u32 uly = (u32)_objCoords.uly;
-	const u32 lrx = (u32)_objCoords.lrx;
-	const u32 lry = (u32)_objCoords.lry;
-	const u32 ci_width = gDP.colorImage.width;
-	const u32 ci_height = (u32)gDP.scissor.lry;
-	if (ulx >= ci_width)
-		return;
-	if (uly >= ci_height)
-		return;
-	u32 width = 16, height = 16;
-	if (lrx > ci_width)
-		width = ci_width - ulx;
-	if (lry > ci_height)
-		height = ci_height - uly;
-	u32 * mb = (u32*)(RDRAM + gDP.textureImage.address); //pointer to the first macro block
-	u16 * dst = (u16*)(RDRAM + gDP.colorImage.address);
-	dst += ulx + uly * ci_width;
-	//yuv macro block contains 16x16 texture. we need to put it in the proper place inside cimg
-	for (u16 h = 0; h < 16; h++) {
-		for (u16 w = 0; w < 16; w += 2) {
-			u32 t = *(mb++); //each u32 contains 2 pixels
-			if ((h < height) && (w < width)) //clipping. texture image may be larger than color image
-			{
-				u8 y0 = (u8)t & 0xFF;
-				u8 v = (u8)(t >> 8) & 0xFF;
-				u8 y1 = (u8)(t >> 16) & 0xFF;
-				u8 u = (u8)(t >> 24) & 0xFF;
-				*(dst++) = _YUVtoRGBA(y0, u, v);
-				*(dst++) = _YUVtoRGBA(y1, u, v);
-			}
-		}
-		dst += ci_width - 16;
-	}
-	FrameBuffer *pBuffer = frameBufferList().getCurrent();
-	if (pBuffer != nullptr)
-		pBuffer->m_isOBScreen = true;
-}
-
-void gSPObjRectangle(u32 _sp)
-{
-	const u32 address = RSP_SegmentToPhysical(_sp);
-	uObjSprite *objSprite = (uObjSprite*)&RDRAM[address];
-	gSPSetSpriteTile(objSprite);
-	ObjCoordinates objCoords(objSprite, false);
-	gSPDrawObjRect(objCoords);
-	DebugMsg(DEBUG_NORMAL, "gSPObjRectangle\n");
-}
-
-void gSPObjRectangleR(u32 _sp)
-{
-	const u32 address = RSP_SegmentToPhysical(_sp);
-	const uObjSprite *objSprite = (uObjSprite*)&RDRAM[address];
-	gSPSetSpriteTile(objSprite);
-	ObjCoordinates objCoords(objSprite, true);
-
-	if (objSprite->imageFmt == G_IM_FMT_YUV && (config.generalEmulation.hacks&hack_Ogre64)) //Ogre Battle needs to copy YUV texture to frame buffer
-		_drawYUVImageToFrameBuffer(objCoords);
-	gSPDrawObjRect(objCoords);
-
-	DebugMsg(DEBUG_NORMAL, "gSPObjRectangleR\n");
-}
-
-static
-void _copyDepthBuffer()
-{
-	if (!config.frameBufferEmulation.enable)
-		return;
-
-	if (!Context::BlitFramebuffer)
-		return;
-
-	// The game copies content of depth buffer into current color buffer
-	// OpenGL has different format for color and depth buffers, so this trick can't be performed directly
-	// To do that, depth buffer with address of current color buffer created and attached to the current FBO
-	// It will be copy depth buffer
-	DepthBufferList & dbList = depthBufferList();
-	dbList.saveBuffer(gDP.colorImage.address);
-	// Take any frame buffer and attach source depth buffer to it, to blit it into copy depth buffer
-	FrameBufferList & fbList = frameBufferList();
-	FrameBuffer * pTmpBuffer = fbList.findTmpBuffer(fbList.getCurrent()->m_startAddress);
-	if (pTmpBuffer == nullptr)
-		return;
-	DepthBuffer * pCopyBufferDepth = dbList.findBuffer(gSP.bgImage.address);
-	if (pCopyBufferDepth == nullptr)
-		return;
-	pCopyBufferDepth->setDepthAttachment(pTmpBuffer->m_FBO, bufferTarget::READ_FRAMEBUFFER);
-
-	DisplayWindow & wnd = dwnd();
-	Context::BlitFramebuffersParams blitParams;
-	blitParams.readBuffer = pTmpBuffer->m_FBO;
-	blitParams.drawBuffer = fbList.getCurrent()->m_FBO;
-	blitParams.srcX0 = 0;
-	blitParams.srcY0 = 0;
-	blitParams.srcX1 = wnd.getWidth();
-	blitParams.srcY1 = wnd.getHeight();
-	blitParams.dstX0 = 0;
-	blitParams.dstY0 = 0;
-	blitParams.dstX1 = wnd.getWidth();
-	blitParams.dstY1 = wnd.getHeight();
-	blitParams.mask = blitMask::DEPTH_BUFFER;
-	blitParams.filter = textureParameters::FILTER_NEAREST;
-
-	gfxContext.blitFramebuffers(blitParams);
-
-	// Restore objects
-	if (pTmpBuffer->m_pDepthBuffer != nullptr)
-		pTmpBuffer->m_pDepthBuffer->setDepthAttachment(fbList.getCurrent()->m_FBO, bufferTarget::READ_FRAMEBUFFER);
-	gfxContext.bindFramebuffer(bufferTarget::READ_FRAMEBUFFER, ObjectHandle::defaultFramebuffer);
-
-	// Set back current depth buffer
-	dbList.saveBuffer(gDP.depthImageAddress);
-}
-
-static
-void _loadBGImage(const uObjScaleBg * _bgInfo, bool _loadScale)
-{
-	gSP.bgImage.address = RSP_SegmentToPhysical( _bgInfo->imagePtr );
-
-	const u32 imageW = _bgInfo->imageW >> 2;
-	const u32 imageH = _bgInfo->imageH >> 2;
-	if (imageW == 512 && (config.generalEmulation.hacks & hack_RE2) != 0) {
-		gSP.bgImage.width = *REG.VI_WIDTH;
-		gSP.bgImage.height = (imageH * imageW) / gSP.bgImage.width;
-	} else {
-		gSP.bgImage.width = imageW - imageW%2;
-		gSP.bgImage.height = imageH - imageH%2;
-	}
-	gSP.bgImage.format = _bgInfo->imageFmt;
-	gSP.bgImage.size = _bgInfo->imageSiz;
-	gSP.bgImage.palette = _bgInfo->imagePal;
-	gDP.tiles[0].textureMode = TEXTUREMODE_BGIMAGE;
-	gSP.bgImage.imageX = _FIXED2FLOAT( _bgInfo->imageX, 5 );
-	gSP.bgImage.imageY = _FIXED2FLOAT( _bgInfo->imageY, 5 );
-	if (_loadScale) {
-		gSP.bgImage.scaleW = _FIXED2FLOAT( _bgInfo->scaleW, 10 );
-		gSP.bgImage.scaleH = _FIXED2FLOAT( _bgInfo->scaleH, 10 );
-	} else
-		gSP.bgImage.scaleW = gSP.bgImage.scaleH = 1.0f;
-
-	if (config.frameBufferEmulation.enable) {
-		FrameBuffer *pBuffer = frameBufferList().findBuffer(gSP.bgImage.address);
-		if ((pBuffer != nullptr) && pBuffer->m_size == gSP.bgImage.size && (!pBuffer->m_isDepthBuffer || pBuffer->m_changed)) {
-			if (gSP.bgImage.format == G_IM_FMT_CI && gSP.bgImage.size == G_IM_SIZ_8b) {
-				// Can't use 8bit CI buffer as texture
-				return;
-			}
-
-			if (pBuffer->m_cfb || !pBuffer->isValid(false)) {
-				frameBufferList().removeBuffer(pBuffer->m_startAddress);
-				return;
-			}
-
-			gDP.tiles[0].frameBufferAddress = pBuffer->m_startAddress;
-			gDP.tiles[0].textureMode = TEXTUREMODE_FRAMEBUFFER_BG;
-			gDP.tiles[0].loadType = LOADTYPE_TILE;
-			gDP.changed |= CHANGED_TMEM;
-
-			if ((config.generalEmulation.hacks & hack_ZeldaMM) != 0) {
-				if (gDP.colorImage.address == gDP.depthImageAddress)
-					frameBufferList().setCopyBuffer(frameBufferList().getCurrent());
-			}
-		}
-	}
-}
-
-void gSPBgRect1Cyc( u32 _bg )
-{
-	const u32 address = RSP_SegmentToPhysical( _bg );
-	uObjScaleBg *objScaleBg = (uObjScaleBg*)&RDRAM[address];
-	_loadBGImage(objScaleBg, true);
-
-	// Zelda MM uses depth buffer copy in LoT and in pause screen.
-	// In later case depth buffer is used as temporal color buffer, and usual rendering must be used.
-	// Since both situations are hard to distinguish, do the both depth buffer copy and bg rendering.
-	if ((config.generalEmulation.hacks & hack_ZeldaMM) != 0 &&
-		(gSP.bgImage.address == gDP.depthImageAddress || depthBufferList().findBuffer(gSP.bgImage.address) != nullptr)
-	)
-		_copyDepthBuffer();
-
-	gDP.otherMode.cycleType = G_CYC_1CYCLE;
-	gDP.changed |= CHANGED_CYCLETYPE;
-	gSPTexture(1.0f, 1.0f, 0, 0, TRUE);
-
-	ObjCoordinates objCoords(objScaleBg);
-	gSPDrawObjRect(objCoords);
-
-	DebugMsg(DEBUG_NORMAL, "gSPBgRect1Cyc\n");
-}
-
-void gSPBgRectCopy( u32 _bg )
-{
-	const u32 address = RSP_SegmentToPhysical( _bg );
-	uObjScaleBg *objBg = (uObjScaleBg*)&RDRAM[address];
-	_loadBGImage(objBg, false);
-
-	// See comment to gSPBgRect1Cyc
-	if ((config.generalEmulation.hacks & hack_ZeldaMM) != 0 &&
-		(gSP.bgImage.address == gDP.depthImageAddress || depthBufferList().findBuffer(gSP.bgImage.address) != nullptr)
-	)
-		_copyDepthBuffer();
-
-	gSPTexture( 1.0f, 1.0f, 0, 0, TRUE );
-
-	ObjCoordinates objCoords(objBg);
-	gSPDrawObjRect(objCoords);
-
-	DebugMsg(DEBUG_NORMAL, "gSPBgRectCopy\n");
-}
-
-void gSPObjSprite(u32 _sp)
-{
-	const u32 address = RSP_SegmentToPhysical( _sp );
-	uObjSprite *objSprite = (uObjSprite*)&RDRAM[address];
-	gSPSetSpriteTile(objSprite);
-	ObjData data(objSprite);
-
-	const f32 ulx = data.X0;
-	const f32 uly = data.Y0;
-	const f32 lrx = data.X1;
-	const f32 lry = data.Y1;
-
-	f32 uls = 0;
-	f32 lrs = (f32)(data.imageW - 1);
-	f32 ult = 0;
-	f32 lrt = (f32)(data.imageH - 1);
-
-	if (objSprite->imageFlags & 0x01) { // flipS
-		uls = lrs;
-		lrs = 0;
-	}
-
-	if (objSprite->imageFlags & 0x10) { // flipT
-		ult = lrt;
-		lrt = 0;
-	}
-
-	const float z = (gDP.otherMode.depthSource == G_ZS_PRIM) ? gDP.primDepth.z : gSP.viewport.nearz;
-
-	GraphicsDrawer & drawer = dwnd().getDrawer();
-	drawer.setDMAVerticesSize(4);
-	SPVertex * pVtx = drawer.getDMAVerticesData();
-
-	SPVertex & vtx0 = pVtx[0];
-	vtx0.x = gSP.objMatrix.A * ulx + gSP.objMatrix.B * uly + gSP.objMatrix.X;
-	vtx0.y = gSP.objMatrix.C * ulx + gSP.objMatrix.D * uly + gSP.objMatrix.Y;
-	vtx0.z = z;
-	vtx0.w = 1.0f;
-	vtx0.s = uls;
-	vtx0.t = ult;
-	SPVertex & vtx1 = pVtx[1];
-	vtx1.x = gSP.objMatrix.A * lrx + gSP.objMatrix.B * uly + gSP.objMatrix.X;
-	vtx1.y = gSP.objMatrix.C * lrx + gSP.objMatrix.D * uly + gSP.objMatrix.Y;
-	vtx1.z = z;
-	vtx1.w = 1.0f;
-	vtx1.s = lrs;
-	vtx1.t = ult;
-	SPVertex & vtx2 = pVtx[2];
-	vtx2.x = gSP.objMatrix.A * ulx + gSP.objMatrix.B * lry + gSP.objMatrix.X;
-	vtx2.y = gSP.objMatrix.C * ulx + gSP.objMatrix.D * lry + gSP.objMatrix.Y;
-	vtx2.z = z;
-	vtx2.w = 1.0f;
-	vtx2.s = uls;
-	vtx2.t = lrt;
-	SPVertex & vtx3 = pVtx[3];
-	vtx3.x = gSP.objMatrix.A * lrx + gSP.objMatrix.B * lry + gSP.objMatrix.X;
-	vtx3.y = gSP.objMatrix.C * lrx + gSP.objMatrix.D * lry + gSP.objMatrix.Y;
-	vtx3.z = z;
-	vtx3.w = 1.0f;
-	vtx3.s = lrs;
-	vtx3.t = lrt;
-
-	drawer.drawScreenSpaceTriangle(4);
-
-	DebugMsg(DEBUG_NORMAL, "gSPObjSprite\n");
-}
+struct uSprite {
+	u32 imagePtr;
+	u32 tlutPtr;
+	s16	imageW;
+	s16	stride;
+	s8	imageSiz;
+	s8	imageFmt;
+	s16	imageH;
+	s16	imageY;
+	s16	imageX;
+	s8	dummy[4];
+};    /* 24 bytes */
 
 static
 void _loadSpriteImage(const uSprite *_pSprite)
@@ -2475,8 +1994,8 @@ void gSPSprite2DBase(u32 _base)
 	uSprite *pSprite = (uSprite*)&RDRAM[address];
 
 	if (pSprite->tlutPtr != 0) {
-		gDPSetTextureImage( 0, 2, 1, pSprite->tlutPtr );
-		gDPSetTile( 0, 2, 0, 256, 7, 0, 0, 0, 0, 0, 0, 0 );
+		gDPSetTextureImage( G_IM_FMT_RGBA, G_IM_SIZ_16b, 1, pSprite->tlutPtr );
+		gDPSetTile( G_IM_FMT_RGBA, G_IM_SIZ_16b, 0, 256, 7, 0, G_TX_NOMIRROR | G_TX_WRAP, G_TX_NOMIRROR | G_TX_WRAP, 0, 0, 0, 0 );
 		gDPLoadTLUT( 7, 0, 0, 1020, 0 );
 
 		if (pSprite->imageFmt != G_IM_FMT_RGBA)
@@ -2583,60 +2102,6 @@ void gSPSprite2DBase(u32 _base)
 		if (pSprite->stride > 0)
 			drawer.drawScreenSpaceTriangle(4);
 	} while (RSP.nextCmd == 0xBD || RSP.nextCmd == 0xBE);
-}
-
-void gSPObjLoadTxSprite(u32 txsp)
-{
-	gSPObjLoadTxtr( txsp );
-	gSPObjSprite( txsp + sizeof( uObjTxtr ) );
-}
-
-void gSPObjLoadTxRect(u32 txsp)
-{
-	gSPObjLoadTxtr(txsp);
-	gSPObjRectangle(txsp + sizeof(uObjTxtr));
-}
-
-void gSPObjLoadTxRectR(u32 txsp)
-{
-	gSPObjLoadTxtr( txsp );
-	gSPObjRectangleR( txsp + sizeof( uObjTxtr ) );
-}
-
-void gSPObjMatrix( u32 mtx )
-{
-	u32 address = RSP_SegmentToPhysical(mtx);
-	uObjMtx *objMtx = (uObjMtx*)&RDRAM[address];
-
-	gSP.objMatrix.A = _FIXED2FLOAT( objMtx->A, 16 );
-	gSP.objMatrix.B = _FIXED2FLOAT( objMtx->B, 16 );
-	gSP.objMatrix.C = _FIXED2FLOAT( objMtx->C, 16 );
-	gSP.objMatrix.D = _FIXED2FLOAT( objMtx->D, 16 );
-	gSP.objMatrix.X = _FIXED2FLOAT( objMtx->X, 2 );
-	gSP.objMatrix.Y = _FIXED2FLOAT( objMtx->Y, 2 );
-	gSP.objMatrix.baseScaleX = _FIXED2FLOAT( objMtx->BaseScaleX, 10 );
-	gSP.objMatrix.baseScaleY = _FIXED2FLOAT( objMtx->BaseScaleY, 10 );
-
-	DebugMsg(DEBUG_NORMAL, "gSPObjMatrix\n");
-}
-
-void gSPObjSubMatrix( u32 mtx )
-{
-	u32 address = RSP_SegmentToPhysical(mtx);
-	uObjSubMtx *objMtx = (uObjSubMtx*)&RDRAM[address];
-	gSP.objMatrix.X = _FIXED2FLOAT(objMtx->X, 2);
-	gSP.objMatrix.Y = _FIXED2FLOAT(objMtx->Y, 2);
-	gSP.objMatrix.baseScaleX = _FIXED2FLOAT(objMtx->BaseScaleX, 10);
-	gSP.objMatrix.baseScaleY = _FIXED2FLOAT(objMtx->BaseScaleY, 10);
-
-	DebugMsg(DEBUG_NORMAL, "gSPObjSubMatrix\n");
-}
-
-void gSPObjRendermode(u32 _mode)
-{
-	gSP.objRendermode = _mode;
-
-	DebugMsg(DEBUG_NORMAL, "gSPObjRendermode(0x%08x)\n", _mode);
 }
 
 #ifndef __NEON_OPT

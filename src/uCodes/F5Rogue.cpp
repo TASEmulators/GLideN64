@@ -11,6 +11,7 @@
 #include "DebugDump.h"
 #include "F3D.h"
 #include "F3DEX.h"
+#include "F5Rogue.h"
 #include "N64.h"
 #include "RSP.h"
 #include "RDP.h"
@@ -123,13 +124,13 @@ SWRSTriangle TriGen0001_defaultTriangleOrder[8] = {
 };
 
 inline
-void _updateSWDL()
+void _updateF5DL()
 {
 	// Lemmy's note:
 	// differs from the other DL commands because it does skip the first command
 	// the first 32 bits are stored, because they are
 	// used as branch target address in the command in the QUAD "slot"
-	RSP.swDL[RSP.PCi] = _SHIFTR(*(u32*)&RDRAM[RSP.PC[RSP.PCi]], 0, 24);
+	RSP.F5DL[RSP.PCi] = _SHIFTR(*(u32*)&RDRAM[RSP.PC[RSP.PCi]], 0, 24);
 }
 
 void F3DSWRS_Mtx(u32 w0, u32 w1)
@@ -173,7 +174,7 @@ void F3DSWRS_Vtx(u32 _w0, u32 _w1)
 		return;
 
 	const SWVertex * vertex = (const SWVertex*)&RDRAM[address];
-	gSPSWVertex(vertex, n, 0 );
+	gSPSWVertex(vertex, n, nullptr );
 }
 
 static
@@ -195,10 +196,10 @@ void F3DSWRS_PrepareVertices(const u32* _vert,
 	for (u32 i = 0; i < _num; ++i) {
 		SPVertex & vtx = drawer.getVertex(_vert != nullptr ? _vert[i] : i);
 		const u8 *color = _colorbase + _colorIdx[i];
-		vtx.r = color[3] * 0.0039215689f;
-		vtx.g = color[2] * 0.0039215689f;
-		vtx.b = color[1] * 0.0039215689f;
-		vtx.a = color[0] * 0.0039215689f;
+		vtx.r = _FIXED2FLOATCOLOR(color[3], 8 );
+		vtx.g = _FIXED2FLOATCOLOR(color[2], 8 );
+		vtx.b = _FIXED2FLOATCOLOR(color[1], 8 );
+		vtx.a = _FIXED2FLOATCOLOR(color[0], 8 );
 
 		if (_useTex) {
 			const u32 st = *(u32*)&_texbase[4 * i];
@@ -835,7 +836,7 @@ void TriGen0000()
 	// Step 3. Process vertices
 	const SWVertex * vertex = (const SWVertex*)vtxData32.data();
 	const u32 vtxSize = static_cast<u32>(vtxData32.size()) / 2;
-	gSPSWVertex(vertex, vtxSize, 0);
+	gSPSWVertex(vertex, vtxSize, nullptr);
 
 	// Step 4. Prepare color indices and texture coordinates. Prepare vertices for rendering
 
@@ -903,7 +904,7 @@ void TriGen0001()
 	// Step 3. Process vertices
 	const SWVertex * vertex = (const SWVertex*)vtxData32.data();
 	const u32 vtxSize = static_cast<u32>(vtxData32.size()) / 2;
-	gSPSWVertex(vertex, vtxSize, 0);
+	gSPSWVertex(vertex, vtxSize, nullptr);
 
 	// Step 4. Prepare color indices and texture coordinates. Prepare vertices for rendering
 
@@ -944,7 +945,7 @@ void TriGen02()
 	u32 vecdata[8];
 	TriGen02_BuildVtxData(params, vecdata);
 	const SWVertex * vertex = (const SWVertex*)&vecdata[0];
-	gSPSWVertex(vertex, 4, 0);
+	gSPSWVertex(vertex, 4, nullptr);
 	GraphicsDrawer & drawer = dwnd().getDrawer();
 
 	const u32 v1 = 0;
@@ -1009,22 +1010,22 @@ void F3DSWRS_TriGen(u32 _w0, u32 _w1)
 void F3DSWRS_JumpSWDL(u32, u32)
 {
 	DebugMsg(DEBUG_NORMAL, "F3DSWRS_JumpSWDL\n");
-	RSP.PC[RSP.PCi] = RSP.swDL[RSP.PCi];
-	_updateSWDL();
+	RSP.PC[RSP.PCi] = RSP.F5DL[RSP.PCi];
+	_updateF5DL();
 }
 
 void F3DSWRS_DList(u32, u32 _w1)
 {
 	DebugMsg(DEBUG_NORMAL, "F3DSWRS_DList (0x%08x)\n", _w1);
 	gSPDisplayList(_w1);
-	_updateSWDL();
+	_updateF5DL();
 }
 
 void F3DSWRS_BranchDList(u32, u32 _w1)
 {
 	DebugMsg(DEBUG_NORMAL, "F3DSWRS_BranchDList (0x%08x)\n", _w1);
 	gSPBranchList(_w1);
-	_updateSWDL();
+	_updateF5DL();
 }
 
 void F3DSWRS_EndDisplayList(u32, u32)
@@ -1066,36 +1067,10 @@ void _addVertices(const u32 _vert[3], GraphicsDrawer & _drawer)
 	}
 }
 
-void F3DSWRS_Tri1(u32 _w0, u32 _w1)
+void F3DSWRS_Tri(u32 _w0, u32 _w1)
 {
-	DebugMsg(DEBUG_NORMAL, "F3DSWRS_Tri1 (0x%08x, 0x%08x)\n", _w0, _w1);
-	const u32 v1 = (_SHIFTR(_w1, 13, 11) & 0x7F8) / 40;
-	const u32 v2 = (_SHIFTR( _w1,  5, 11 ) & 0x7F8) / 40;
-	const u32 v3 = ((_w1 <<  3) & 0x7F8) / 40;
-	const u32 vert[3] = { v1, v2, v3 };
-
-	const u32 colorParam = *(u32*)&RDRAM[RSP.PC[RSP.PCi] + 8];
-	const u32 colorIdx[3] = { _SHIFTR(colorParam, 16, 8), _SHIFTR(colorParam, 8, 8), _SHIFTR(colorParam, 0, 8) };
-
-	const bool useTex = (_w0 & 2) != 0;
-    const u8 * texbase = RDRAM + RSP.PC[RSP.PCi] + 16;
-	F3DSWRS_PrepareVertices(vert, RDRAM + gSP.vertexColorBase, colorIdx, texbase, useTex, gDP.otherMode.texturePersp != 0, 3);
-
-	if (useTex)
-		RSP.PC[RSP.PCi] += 16;
-
-	RSP.nextCmd = _SHIFTR(*(u32*)&RDRAM[RSP.PC[RSP.PCi] + 16], 24, 8);
-	GraphicsDrawer & drawer = dwnd().getDrawer();
-	_addVertices(vert, drawer);
-	if (RSP.nextCmd != G_TRI1 && RSP.nextCmd != G_TRI2)
-		drawer.drawDMATriangles(drawer.getDMAVerticesCount());
-
-	RSP.PC[RSP.PCi] += 8;
-}
-
-void F3DSWRS_Tri2(u32 _w0, u32 _w1)
-{
-	DebugMsg(DEBUG_NORMAL, "F3DSWRS_Tri2 (0x%08x, 0x%08x)\n", _w0, _w1);
+	const bool bTri2 = RSP.cmd == F3DSWRS_TRI2;
+	DebugMsg(DEBUG_NORMAL, "F3DSWRS_Tri%d (0x%08x, 0x%08x)\n", bTri2 ? 2 : 1, _w0, _w1);
 	const u32 v1 = (_SHIFTR(_w1, 13, 11) & 0x7F8) / 40;
 	const u32 v2 = (_SHIFTR( _w1,  5, 11 ) & 0x7F8) / 40;
 	const u32 v3 = ((_w1 <<  3) & 0x7F8) / 40;
@@ -1107,8 +1082,8 @@ void F3DSWRS_Tri2(u32 _w0, u32 _w1)
 							_SHIFTR(colorParam, 0, 8), _SHIFTR(colorParam, 24, 8) };
 
 	const bool useTex = (_w0 & 2) != 0;
-    const u8 * texbase = RDRAM + RSP.PC[RSP.PCi] + 16;
-	F3DSWRS_PrepareVertices(vert, RDRAM + gSP.vertexColorBase, colorIdx, texbase, useTex, gDP.otherMode.texturePersp != 0, 4);
+	const u8 * texbase = RDRAM + RSP.PC[RSP.PCi] + 16;
+	F3DSWRS_PrepareVertices(vert, RDRAM + gSP.vertexColorBase, colorIdx, texbase, useTex, gDP.otherMode.texturePersp != 0, bTri2 ? 4 : 3);
 
 	if (useTex)
 		RSP.PC[RSP.PCi] += 16;
@@ -1117,11 +1092,17 @@ void F3DSWRS_Tri2(u32 _w0, u32 _w1)
 	GraphicsDrawer & drawer = dwnd().getDrawer();
 	const u32 vert1[3] = { v1, v2, v3 };
 	_addVertices(vert1, drawer);
-	const u32 vert2[3] = { v1, v3, v4 };
-	_addVertices(vert2, drawer);
-	if (RSP.nextCmd != G_TRI1 && RSP.nextCmd != G_TRI2)
+	if (bTri2) {
+		const u32 vert2[3] = { v1, v3, v4 };
+		_addVertices(vert2, drawer);
+	}
+	if (RSP.nextCmd != G_TRI1 && RSP.nextCmd != G_TRI2) {
+		const u32 geometryMode = gSP.geometryMode;
+		if ((gSP.geometryMode & G_CULL_BOTH) == G_CULL_BOTH)
+			gSP.geometryMode &= ~(G_CULL_FRONT);
 		drawer.drawDMATriangles(drawer.getDMAVerticesCount());
-
+		gSP.geometryMode = geometryMode;
+	}
 	RSP.PC[RSP.PCi] += 8;
 }
 
@@ -1247,19 +1228,17 @@ void F3DSWRS_TexrectGen(u32 _w0, u32 _w1)
 	gDP.primDepth.deltaZ = 0.0f;
 
 	const u32 primColor = params[1];
-	gDPSetPrimColor( u32(gDP.primColor.m*255.0f),	// m
-					 u32(gDP.primColor.l*255.0f),	// l
-					 _SHIFTR( primColor, 24, 8 ),	// r
-					 _SHIFTR( primColor, 16, 8 ),	// g
-					 _SHIFTR( primColor,  8, 8 ),	// b
-					 _SHIFTR( primColor,  0, 8 ) );	// a
+	gDP.primColor.r = _FIXED2FLOATCOLOR(_SHIFTR(primColor, 24, 8), 8);
+	gDP.primColor.g = _FIXED2FLOATCOLOR(_SHIFTR(primColor, 16, 8), 8);
+	gDP.primColor.b = _FIXED2FLOATCOLOR(_SHIFTR(primColor,  8, 8), 8);
+	gDP.primColor.a = _FIXED2FLOATCOLOR(_SHIFTR(primColor,  0, 8), 8);
 
 	if ((gSP.geometryMode & G_FOG) != 0) {
 		const u32 fogColor = (params[1] & 0xFFFFFF00) | u32(v.a*255.0f);
-		gDPSetFogColor( _SHIFTR( fogColor, 24, 8 ),		// r
-						_SHIFTR( fogColor, 16, 8 ),		// g
-						_SHIFTR( fogColor,  8, 8 ),		// b
-						_SHIFTR( fogColor,  0, 8 ) );	// a
+		gDPSetFogColor( _SHIFTR( fogColor, 24, 8 ),	// r
+		                _SHIFTR( fogColor, 16, 8 ),	// g
+		                _SHIFTR( fogColor,  8, 8 ),	// b
+		                _SHIFTR( fogColor,  0, 8 ) );	// a
 	}
 
 	gDPTextureRectangle(ulx, uly, lrx, lry, gSP.texture.tile, (s16)S, (s16)T, dsdx, dtdy, flip);
@@ -1281,7 +1260,7 @@ void F3DSWRS_SetOtherMode_L_EX(u32 _w0, u32 _w1)
 	gDP.otherMode.l |= _w1;
 }
 
-void F3DSWRS_Init()
+void F5Rogue_Init()
 {
 	gSPSetupFunctions();
 	// Set GeometryMode flags
@@ -1300,7 +1279,7 @@ void F3DSWRS_Init()
 	GBI_SetGBI( G_RESERVED2,			F3DSWRS_BRANCHDL,			F3DSWRS_BranchDList );
 	GBI_SetGBI( G_RESERVED3,			F3D_RESERVED3,				F3D_Reserved3 );
 
-	GBI_SetGBI( G_TRI1,					F3DSWRS_TRI1,				F3DSWRS_Tri1 );
+	GBI_SetGBI( G_TRI1,					F3DSWRS_TRI1,				F3DSWRS_Tri );
 	GBI_SetGBI( G_SETOTHERMODE_H_EX,	F3DSWRS_SETOTHERMODE_H_EX,	F3DSWRS_SetOtherMode_H_EX );
 	GBI_SetGBI( G_POPMTX,				F3DSWRS_TEXRECT_GEN,		F3DSWRS_TexrectGen );
 	GBI_SetGBI( G_MOVEWORD,				F3DSWRS_MOVEWORD,			F3DSWRS_MoveWord );
@@ -1311,6 +1290,6 @@ void F3DSWRS_Init()
 	GBI_SetGBI( G_SETGEOMETRYMODE,		F3D_SETGEOMETRYMODE,		F3D_SetGeometryMode );
 	GBI_SetGBI( G_CLEARGEOMETRYMODE,	F3D_CLEARGEOMETRYMODE,		F3D_ClearGeometryMode );
 	GBI_SetGBI( G_JUMPSWDL,				F3DSWRS_JUMPSWDL,			F3DSWRS_JumpSWDL );
-	GBI_SetGBI( G_TRI2,					F3DSWRS_TRI2,				F3DSWRS_Tri2 );
+	GBI_SetGBI( G_TRI2,					F3DSWRS_TRI2,				F3DSWRS_Tri );
 	GBI_SetGBI( G_SETOTHERMODE_L_EX,	F3DSWRS_SETOTHERMODE_L_EX,	F3DSWRS_SetOtherMode_L_EX );
 }

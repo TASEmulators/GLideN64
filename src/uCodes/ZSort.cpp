@@ -109,8 +109,13 @@ void ZSort_DrawObject (u8 * _addr, u32 _type)
 		vtx.HWLight = 0;
 		vtx.clip = 0;
 		if (textured != 0) {
-			vtx.s = _FIXED2FLOAT(((s16*)_addr)[4^1], 5 );
-			vtx.t = _FIXED2FLOAT(((s16*)_addr)[5^1], 5 );
+			if (gDP.otherMode.texturePersp != 0) {
+				vtx.s = _FIXED2FLOAT(((s16*)_addr)[4 ^ 1], 5);
+				vtx.t = _FIXED2FLOAT(((s16*)_addr)[5 ^ 1], 5);
+			} else {
+				vtx.s = _FIXED2FLOAT(((s16*)_addr)[4 ^ 1], 6);
+				vtx.t = _FIXED2FLOAT(((s16*)_addr)[5 ^ 1], 6);
+			}
 			vtx.w = Calc_invw(((int*)_addr)[3]) / 31.0f;
 		} else
 			vtx.w = 1.0f;
@@ -206,16 +211,16 @@ void ZSort_XFMLight( u32 _w0, u32 _w1 )
 */
 
 
-	gSP.lights.rgb[gSP.numLights][R] = (f32)(((u8*)DMEM)[(addr+0)^3]) * 0.0039215689f;
-	gSP.lights.rgb[gSP.numLights][G] = (f32)(((u8*)DMEM)[(addr+1)^3]) * 0.0039215689f;
-	gSP.lights.rgb[gSP.numLights][B] = (f32)(((u8*)DMEM)[(addr+2)^3]) * 0.0039215689f;
+	gSP.lights.rgb[gSP.numLights][R] = _FIXED2FLOATCOLOR(((u8*)DMEM)[(addr+0)^3], 8 );
+	gSP.lights.rgb[gSP.numLights][G] = _FIXED2FLOATCOLOR(((u8*)DMEM)[(addr+1)^3], 8 );
+	gSP.lights.rgb[gSP.numLights][B] = _FIXED2FLOATCOLOR(((u8*)DMEM)[(addr+2)^3], 8 );
 	addr += 8;
 	u32 i;
 	for (i = 0; i < gSP.numLights; ++i)
 	{
-		gSP.lights.rgb[i][R] = (f32)(((u8*)DMEM)[(addr+0)^3]) * 0.0039215689f;
-		gSP.lights.rgb[i][G] = (f32)(((u8*)DMEM)[(addr+1)^3]) * 0.0039215689f;
-		gSP.lights.rgb[i][B] = (f32)(((u8*)DMEM)[(addr+2)^3]) * 0.0039215689f;
+		gSP.lights.rgb[i][R] = _FIXED2FLOATCOLOR(((u8*)DMEM)[(addr+0)^3], 8 );
+		gSP.lights.rgb[i][G] = _FIXED2FLOATCOLOR(((u8*)DMEM)[(addr+1)^3], 8 );
+		gSP.lights.rgb[i][B] = _FIXED2FLOATCOLOR(((u8*)DMEM)[(addr+2)^3], 8 );
 		gSP.lights.xyz[i][X] = (f32)(((s8*)DMEM)[(addr+8)^3]);
 		gSP.lights.xyz[i][Y] = (f32)(((s8*)DMEM)[(addr+9)^3]);
 		gSP.lights.xyz[i][Z] = (f32)(((s8*)DMEM)[(addr+10)^3]);
@@ -273,10 +278,10 @@ void ZSort_Lighting( u32 _w0, u32 _w1 )
 		vtx.a = 1.0f;
 		if (use_material)
 		{
-			vtx.r *= DMEM[(csrs++)^3] * 0.0039215689f;
-			vtx.g *= DMEM[(csrs++)^3] * 0.0039215689f;
-			vtx.b *= DMEM[(csrs++)^3] * 0.0039215689f;
-			vtx.a = DMEM[(csrs++)^3] * 0.0039215689f;
+			vtx.r *= _FIXED2FLOATCOLOR(DMEM[(csrs++)^3], 8 );
+			vtx.g *= _FIXED2FLOATCOLOR(DMEM[(csrs++)^3], 8 );
+			vtx.b *= _FIXED2FLOATCOLOR(DMEM[(csrs++)^3], 8 );
+			vtx.a = _FIXED2FLOATCOLOR(DMEM[(csrs++)^3], 8 );
 		}
 		DMEM[(cdest++)^3] = (u8)(vtx.r * 255.0f);
 		DMEM[(cdest++)^3] = (u8)(vtx.g * 255.0f);

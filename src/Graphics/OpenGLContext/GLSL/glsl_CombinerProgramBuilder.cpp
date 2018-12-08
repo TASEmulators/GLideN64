@@ -749,13 +749,10 @@ public:
 			"uniform lowp int uDepthSource;			\n"
 			"uniform highp float uPrimDepth;		\n"
 			"uniform mediump vec2 uScreenScale;		\n"
+			"uniform lowp int uFogUsage;			\n"
 			;
 
-		if (config.generalEmulation.enableLegacyBlending != 0) {
-			m_part +=
-				"uniform lowp int uFogUsage;		\n"
-			;
-		} else {
+		if (config.generalEmulation.enableLegacyBlending == 0) {
 			m_part +=
 				"uniform lowp ivec4 uBlendMux1;		\n"
 				"uniform lowp int uForceBlendCycle1;\n"
@@ -1538,20 +1535,20 @@ public:
 				} else {
 					if (_glinfo.isGLESX && _glinfo.noPerspective) {
 						 m_part =
-							"highp float writeDepth()                                                                                                                                      \n"
-							"{                                                                                                                                                                              \n"
-							"  if (uClampMode == 1 && (vZCoord > 1.0)) discard;     \n"
-							"  highp float depth = uDepthSource == 0 ? (vZCoord - uPolygonOffset) : uPrimDepth;     \n"
-							"  return clamp(depth * uDepthScale.s + uDepthScale.t, 0.0, 1.0);                               \n"
-							"}                                                                                                                                                                              \n"
+							"highp float writeDepth()																	\n"
+							"{																							\n"
+							"  if (uClampMode == 1 && (vZCoord > 1.0)) discard;											\n"
+							"  if (uDepthSource != 0) return uPrimDepth;												\n"
+							"  return clamp((vZCoord - uPolygonOffset) * uDepthScale.s + uDepthScale.t, 0.0, 1.0);		\n"
+							"}																							\n"
 							;
 					} else {
 						m_part =
-							"highp float writeDepth()						        										\n"
-							"{																						\n"
-							"  highp float depth = uDepthSource == 0 ? (gl_FragCoord.z * 2.0 - 1.0) : uPrimDepth;	\n"
-							"  return clamp(depth * uDepthScale.s + uDepthScale.t, 0.0, 1.0);				\n"
-							"}																						\n"
+							"highp float writeDepth()						        									\n"
+							"{																							\n"
+							"  if (uDepthSource != 0) return uPrimDepth;												\n"
+							"  return clamp((gl_FragCoord.z * 2.0 - 1.0) * uDepthScale.s + uDepthScale.t, 0.0, 1.0);	\n"
+							"}																							\n"
 							;
 					}
 				}
@@ -1683,8 +1680,10 @@ public:
 					"  if (magnify && ((uTextureDetail & 1) != 0))			\n"
 					"      lod_frac = 1.0 - lod_frac;						\n"
 					"  if (uMaxTile == 0) {									\n"
-					"    if (uEnableLod != 0 && (uTextureDetail & 2) == 0)	\n"
-					"      readtex1 = readtex0;								\n"
+					"    if (uEnableLod != 0) {								\n"
+					"      if ((uTextureDetail & 2) == 0) readtex1 = readtex0;	\n"
+					"      else if (!magnify) readtex0 = readtex1;			\n"
+					"    }													\n"
 					"    return lod_frac;									\n"
 					"  }													\n"
 					"  if (uEnableLod == 0) return lod_frac;				\n"
@@ -1948,11 +1947,13 @@ public:
 	{
 		if (config.frameBufferEmulation.N64DepthCompare != 0) {
 			m_part =
+				"uniform lowp int uEnableDepth;							\n"
 				"uniform lowp int uDepthMode;							\n"
 				"uniform lowp int uEnableDepthUpdate;					\n"
 				"uniform mediump float uDeltaZ;							\n"
-				"bool depth_compare(highp float curZ)									\n"
+				"bool depth_compare(highp float curZ)					\n"
 				"{														\n"
+				"  if (uEnableDepth == 0) return true;					\n"
 				;
 			if (_glinfo.imageTextures) {
 				m_part +=

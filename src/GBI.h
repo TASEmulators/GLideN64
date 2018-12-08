@@ -29,10 +29,12 @@
 #define T3DUX			20
 #define F3DEX2ACCLAIM	21
 #define F3DAM			22
-#define F3DSWRS			23
-#define F3DFLX2			24
-#define ZSortBOSS		25
-#define NONE			26
+#define F3DFLX2			23
+#define ZSortBOSS		24
+#define F5Rogue			25
+#define F5Indi_Naboo	26
+#define S2DEX_1_03		27
+#define NONE			28
 
 // Fixed point conversion factors
 #define FIXED2FLOATRECIP1	0.5f
@@ -46,17 +48,18 @@
 #define FIXED2FLOATRECIP9	0.001953125f
 #define FIXED2FLOATRECIP10	0.0009765625f
 #define FIXED2FLOATRECIP11	0.00048828125f
-#define FIXED2FLOATRECIP12	0.00024414063f
-#define FIXED2FLOATRECIP13	0.00012207031f
-#define FIXED2FLOATRECIP14	6.1035156e-05f
-#define FIXED2FLOATRECIP15	3.0517578e-05f
-#define FIXED2FLOATRECIP16	1.5258789e-05f
+#define FIXED2FLOATRECIP12	2.44140625e-04f
+#define FIXED2FLOATRECIP13	1.220703125e-04f
+#define FIXED2FLOATRECIP14	6.103515625e-05f
+#define FIXED2FLOATRECIP15	3.0517578125e-05f
+#define FIXED2FLOATRECIP16	1.52587890625e-05f
 
 #define _FIXED2FLOAT( v, b ) \
 	((f32)v * FIXED2FLOATRECIP##b)
 
-#define FIXED2FLOATRECIPCOLOR7	0.00787401572f
-#define FIXED2FLOATRECIPCOLOR8	0.00392156886f
+#define FIXED2FLOATRECIPCOLOR5	3.22580635547637939453125e-02f
+#define FIXED2FLOATRECIPCOLOR7	7.8740157186985015869140625e-03f
+#define FIXED2FLOATRECIPCOLOR8	3.9215688593685626983642578125e-03f
 
 #define _FIXED2FLOATCOLOR( v, b ) \
 	((f32)v * FIXED2FLOATRECIPCOLOR##b)
@@ -233,8 +236,10 @@ extern u32 G_MWO_aLIGHT_8, G_MWO_bLIGHT_8;
 #define G_IM_SIZ_32b	3
 #define G_IM_SIZ_DD		5
 
-#define G_TX_MIRROR		0x1
-#define G_TX_CLAMP		0x2
+#define G_TX_NOMIRROR			0x00	// 0 << 0
+#define G_TX_MIRROR				0x01
+#define G_TX_WRAP				0x00	// 0 << 1
+#define G_TX_CLAMP				0x02
 
 #define G_NOOP					0x00
 
@@ -491,27 +496,19 @@ struct Light
 
 // GBI commands
 typedef void (*GBIFunc)( u32 w0, u32 w1 );
-//extern GBIFunc GBICmd[256];
-
-struct SpecialMicrocodeInfo
-{
-	u32 type;
-	bool NoN;
-	bool negativeY;
-	u32 crc;
-	const char *text;
-};
 
 struct MicrocodeInfo
 {
 	u32 address, dataAddress;
 	u16 dataSize;
 	u32 type;
-	u32 crc;
-	bool NoN;
-	bool negativeY;
-	bool texturePersp;
-	bool combineMatrices;
+	bool NoN = false;
+	bool Rej = false;
+	bool cullBoth = true;
+	bool negativeY = true;
+	bool fast3DPersp = false;
+	bool texturePersp = true;
+	bool combineMatrices = false;
 };
 
 struct GBIInfo
@@ -527,6 +524,8 @@ struct GBIInfo
 	bool isHWLSupported() const;
 	void setHWLSupported(bool _supported);
 	bool isNoN() const { return m_pCurrent != nullptr ? m_pCurrent->NoN : false; }
+	bool isRej() const { return m_pCurrent != nullptr ? m_pCurrent->Rej : false; }
+	bool isCullBoth() const { return m_pCurrent != nullptr ? m_pCurrent->cullBoth : false; }
 	bool isNegativeY() const { return m_pCurrent != nullptr ? m_pCurrent->negativeY : true; }
 	bool isTexturePersp() const { return m_pCurrent != nullptr ? m_pCurrent->texturePersp: true; }
 	bool isCombineMatrices() const { return m_pCurrent != nullptr ? m_pCurrent->combineMatrices: false; }

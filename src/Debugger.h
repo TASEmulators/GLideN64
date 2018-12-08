@@ -75,7 +75,7 @@ private:
 			, t0(_v.t0)
 			, s1(_v.s1)
 			, t1(_v.t1)
-			, modify(0)
+			, modify(MODIFY_XY | MODIFY_Z)
 		{
 			r = g = b = a = 0.0f;
 		}
@@ -103,6 +103,7 @@ private:
 		gDPInfo::Color env_color;
 		gDPInfo::FillColor fill_color;
 		gDPInfo::PrimColor prim_color;
+		f32 primDepthZ, primDepthDeltaZ;
 		s32 K4, K5;
 
 		f32 getScreenX(const Vertex & _v) const;

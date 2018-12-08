@@ -296,6 +296,11 @@ public:
 
 	void update(bool _force) override
 	{
+		if (config.generalEmulation.enableLegacyBlending == 1) {
+			uForceBlendCycle1.set(0, _force);
+			return;
+		}
+
 		uBlendMux1.set(gDP.otherMode.c1_m1a,
 			gDP.otherMode.c1_m1b,
 			gDP.otherMode.c1_m2a,
@@ -323,6 +328,12 @@ public:
 
 	void update(bool _force) override
 	{
+		if (config.generalEmulation.enableLegacyBlending == 1) {
+			uForceBlendCycle1.set(0, _force);
+			uForceBlendCycle2.set(0, _force);
+			return;
+		}
+
 		uBlendMux1.set(gDP.otherMode.c1_m1a,
 			gDP.otherMode.c1_m1b,
 			gDP.otherMode.c1_m2a,
@@ -504,8 +515,6 @@ public:
 	void update(bool _force) override
 	{
 		int textureFilter = gDP.otherMode.textureFilter;
-		if ((gSP.objRendermode&G_OBJRM_BILERP) != 0)
-			textureFilter |= 2;
 		uTextureFilterMode.set(textureFilter, _force);
 		uTextureFormat.set(gSP.textureTile[0]->format, gSP.textureTile[1]->format, _force);
 		uTextureConvert.set(gDP.otherMode.convert_one, _force);
@@ -660,7 +669,7 @@ public:
 	void update(bool _force) override
 	{
 		int renderTarget = 0;
-		if (gDP.colorImage.address == gDP.depthImageAddress ) {
+		if (isCurrentColorImageDepthImage()) {
 			renderTarget = gDP.otherMode.depthCompare + 1;
 		}
 		uRenderTarget.set(renderTarget, _force);
@@ -759,8 +768,8 @@ public:
 		uEnvColor.set(&gDP.envColor.r, _force);
 		uPrimColor.set(&gDP.primColor.r, _force);
 		uPrimLod.set(gDP.primColor.l, _force);
-		uK4.set(gDP.convert.k4*0.0039215689f, _force);
-		uK5.set(gDP.convert.k5*0.0039215689f, _force);
+		uK4.set(_FIXED2FLOATCOLOR(gDP.convert.k4, 8 ), _force);
+		uK5.set(_FIXED2FLOATCOLOR(gDP.convert.k5, 8 ), _force);
 	}
 
 private:

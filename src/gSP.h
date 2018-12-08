@@ -58,13 +58,6 @@ struct gSPInfo
 		f32 combined[4][4];
 	} matrix;
 
-	struct
-	{
-		f32 A, B, C, D;
-		f32 X, Y;
-		f32 baseScaleX, baseScaleY;
-	} objMatrix;
-
 	u32 objRendermode;
 
 	u32 vertexColorBase;
@@ -117,6 +110,7 @@ struct gSPInfo
 	{
 		u32 address, width, height, format, size, palette;
 		f32 imageX, imageY, scaleW, scaleH;
+		u8 clampS, clampT;
 	} bgImage;
 
 	u32 geometryMode;
@@ -137,6 +131,8 @@ struct gSPInfo
 	u32 DMAIO_address;
 
 	u32 tri_num;
+
+	u32 clipRatio;
 
 	// CBFD
 	u32 vertexNormalBase;
@@ -164,7 +160,8 @@ void gSPDMAVertex( u32 v, u32 n, u32 v0 );
 void gSPCBFDVertex( u32 v, u32 n, u32 v0 );
 void gSPT3DUXVertex(u32 v, u32 n, u32 ci);
 void gSPF3DAMVertex( u32 v, u32 n, u32 v0 );
-void gSPSWVertex(const SWVertex * vertex, u32 n, u32 v0);
+void gSPSWVertex(const SWVertex * vertex, u32 n, const bool * const verticesToProcess);
+void gSPSWVertex(const SWVertex * vertex, u32 v0, u32 n);
 void gSPDisplayList(u32 dl);
 void gSPBranchList( u32 dl );
 void gSPBranchLessZ(u32 branchdl, u32 vtx, u32 zval);
@@ -177,7 +174,7 @@ void gSPCullDisplayList( u32 v0, u32 vn );
 void gSPPopMatrix( u32 param );
 void gSPPopMatrixN( u32 param, u32 num );
 void gSPSegment( s32 seg, s32 base );
-void gSPClipRatio( u32 r );
+void gSPClipRatio( u32 ratio );
 void gSPInsertMatrix( u32 where, u32 num );
 void gSPModifyVertex(u32 _vtx, u32 _where, u32 _val );
 void gSPNumLights( s32 n );
@@ -194,23 +191,10 @@ void gSPSetOtherMode_L(u32 _length, u32 _shift, u32 _data);
 void gSPLine3D(s32 v0, s32 v1, s32 flag);
 void gSPLineW3D( s32 v0, s32 v1, s32 wd, s32 flag );
 void gSPSetStatus(u32 sid, u32 val);
-void gSPObjRectangle(u32 _sp );
-void gSPObjRectangleR(u32 _sp);
-void gSPObjSprite(u32 _sp);
-void gSPObjLoadTxtr( u32 tx );
-void gSPObjLoadTxSprite( u32 txsp );
-void gSPObjLoadTxRect(u32 txsp);
-void gSPObjLoadTxRectR( u32 txsp );
-void gSPBgRect1Cyc(u32 _bg );
-void gSPBgRectCopy(u32 _bg );
-void gSPObjMatrix( u32 mtx );
-void gSPObjSubMatrix( u32 mtx );
-void gSPObjRendermode(u32 _mode);
 void gSPSetDMAOffsets( u32 mtxoffset, u32 vtxoffset );
 void gSPSetDMATexOffset(u32 _addr);
 void gSPSetVertexColorBase( u32 base );
 void gSPSetVertexNormaleBase( u32 base );
-void gSPProcessVertex(u32 v);
 void gSPCoordMod(u32 _w0, u32 _w1);
 void gSPCombineMatrices(u32 _mode);
 

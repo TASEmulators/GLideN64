@@ -26,11 +26,16 @@ struct FrameBuffer
 	void copyRdram();
 	void setDirty();
 	bool isValid(bool _forceCheck) const;
-	bool _isMarioTennisScoreboard() const;
 	bool isAuxiliary() const;
 
-	u32 m_startAddress, m_endAddress;
-	u32 m_size, m_width, m_height;
+	u32 m_startAddress;
+	u32 m_endAddress;
+	u32 m_size;
+	u32 m_width;
+	u32 m_height;
+	u32 m_originX;
+	u32 m_originY;
+	u32 m_swapCount;
 	float m_scale;
 	bool m_copiedToRdram;
 	bool m_fingerprint;
@@ -83,6 +88,7 @@ private:
 	void _initCopyTexture();
 	CachedTexture * _copyFrameBufferTexture();
 	CachedTexture * _getSubTexture(u32 _t);
+
 	mutable u32 m_validityChecked;
 };
 
@@ -126,11 +132,43 @@ private:
 	void _createScreenSizeBuffer();
 	void _renderScreenSizeBuffer();
 
+	class OverscanBuffer
+	{
+	public:
+		void init();
+		void destroy();
+
+		void setInputBuffer(const FrameBuffer *  _pBuffer);
+		void activate();
+		void draw(u32 _fullHeight, bool _PAL);
+
+		s32 getHOffset() const;
+		s32 getVOffset() const;
+		f32 getScaleX() const;
+		f32 getScaleY(u32 _fullHeight) const;
+		u32 getDrawingWidth() const { return m_drawingWidth; }
+		u32 getBufferWidth() const { return m_bufferWidth; }
+		u32 getBufferHeight() const { return m_bufferHeight; }
+
+	private:
+		s32 m_hOffset = 0;
+		s32 m_vOffset = 0;
+		f32 m_scale = 1.0f;
+		u32 m_drawingWidth = 0U;
+		u32 m_bufferWidth = 0U;
+		u32 m_bufferHeight = 0U;
+		bool m_enabled = false;
+
+		graphics::ObjectHandle m_FBO;
+		CachedTexture *m_pTexture = nullptr;
+	};
+
 	typedef std::list<FrameBuffer> FrameBuffers;
 	FrameBuffers m_list;
 	FrameBuffer * m_pCurrent;
 	FrameBuffer * m_pCopy;
 	u32 m_prevColorImageHeight;
+	OverscanBuffer m_overscan;
 };
 
 inline

@@ -4,7 +4,6 @@
 #include <cmath>
 #include "Platform.h"
 #include "Graphics/Context.h"
-#include "Graphics/Parameters.h"
 #include "DisplayWindow.h"
 #include "SoftwareRender.h"
 #include "GraphicsDrawer.h"
@@ -102,7 +101,9 @@ void GraphicsDrawer::_updateCullFace() const
 	if (gSP.geometryMode & G_CULL_BOTH) {
 		gfxContext.enable(enable::CULL_FACE, true);
 
-		if (gSP.geometryMode & G_CULL_BACK)
+		if ((gSP.geometryMode & G_CULL_BOTH) == G_CULL_BOTH && GBI.isCullBoth())
+			gfxContext.cullFace(cullMode::FRONT_AND_BACK);
+		else if ((gSP.geometryMode & G_CULL_BACK) == G_CULL_BACK)
 			gfxContext.cullFace(cullMode::BACK);
 		else
 			gfxContext.cullFace(cullMode::FRONT);
@@ -187,22 +188,31 @@ void _adjustScissorX(f32 & _X0, f32 & _X1, float _scale)
 	_X1 = (_X1 - halfX) * _scale + halfX;
 }
 
+inline
+s32 roundup(f32 _v, f32 _scale)
+{
+	return static_cast<s32>(floorf(_v * _scale + 0.5f));
+}
+
 void GraphicsDrawer::updateScissor(FrameBuffer * _pBuffer) const
 {
 	DisplayWindow & wnd = DisplayWindow::get();
 	f32 scaleX, scaleY;
+	f32 offsetX = 0.0f, offsetY = 0.0f;
 	if (_pBuffer == nullptr) {
 		scaleX = wnd.getScaleX();
 		scaleY = wnd.getScaleY();
 	} else {
 		scaleX = _pBuffer->m_scale;
 		scaleY = _pBuffer->m_scale;
+		offsetX = f32(_pBuffer->m_originX);
+		offsetY = f32(_pBuffer->m_originY);
 	}
 
-	f32 SX0 = gDP.scissor.ulx;
-	f32 SX1 = gDP.scissor.lrx;
-	f32 SY0 = gDP.scissor.uly;
-	f32 SY1 = gDP.scissor.lry;
+	f32 SX0 = gDP.scissor.ulx + offsetX;
+	f32 SX1 = gDP.scissor.lrx + offsetX;
+	f32 SY0 = gDP.scissor.uly + offsetY;
+	f32 SY1 = gDP.scissor.lry + offsetY;
 
 	if (u32(SX1) == 512 && (config.generalEmulation.hacks & hack_RE2) != 0) {
 		SX1 = f32(*REG.VI_WIDTH);
@@ -212,8 +222,8 @@ void GraphicsDrawer::updateScissor(FrameBuffer * _pBuffer) const
 	if (_needAdjustCoordinate(wnd))
 		_adjustScissorX(SX0, SX1, wnd.getAdjustScale());
 
-	gfxContext.setScissor((s32)(SX0 * scaleX), (s32)(SY0 * scaleY),
-		std::max((s32)((SX1 - SX0) * scaleX), 0), std::max((s32)((SY1 - SY0) * scaleY), 0));
+	gfxContext.setScissor(roundup(SX0, scaleX), roundup(SY0, scaleY),
+		std::max(roundup(SX1 - SX0, scaleX), 0), std::max(roundup(SY1 - SY0, scaleY), 0));
 
 	gDP.changed &= ~CHANGED_SCISSOR;
 }
@@ -244,12 +254,15 @@ void GraphicsDrawer::_updateViewport() const
 		const f32 scaleX = pCurrentBuffer->m_scale;
 		const f32 scaleY = pCurrentBuffer->m_scale;
 		float Xf = gSP.viewport.vscale[0] < 0 ? (gSP.viewport.x + gSP.viewport.vscale[0] * 2.0f) : gSP.viewport.x;
+		Xf += f32(pCurrentBuffer->m_originX);
 		if (_needAdjustCoordinate(wnd))
 			Xf = _adjustViewportX(Xf);
-		const s32 X = (s32)(Xf * scaleX);
-		const s32 Y = gSP.viewport.vscale[1] < 0 ? (s32)((gSP.viewport.y + gSP.viewport.vscale[1] * 2.0f) * scaleY) : (s32)(gSP.viewport.y * scaleY);
+		const s32 X = roundup(Xf, scaleX);
+		float Yf = gSP.viewport.vscale[1] < 0 ? (gSP.viewport.y + gSP.viewport.vscale[1] * 2.0f) : gSP.viewport.y;
+		Yf += f32(pCurrentBuffer->m_originY);
+		const s32 Y = roundup(Yf, scaleY);
 		gfxContext.setViewport(X, Y,
-			std::max((s32)(gSP.viewport.width * scaleX), 0), std::max((s32)(gSP.viewport.height * scaleY), 0));
+			std::max(roundup(gSP.viewport.width, scaleX), 0), std::max(roundup(gSP.viewport.height, scaleY), 0));
 	}
 	gSP.changed &= ~CHANGED_VIEWPORT;
 }
@@ -261,6 +274,7 @@ void GraphicsDrawer::_updateScreenCoordsViewport(const FrameBuffer * _pBuffer) c
 
 	u32 bufferWidth, bufferHeight;
 	f32 viewportScaleX, viewportScaleY;
+	s32 X = 0, Y = 0;
 	if (pCurrentBuffer == nullptr) {
 		bufferWidth = VI.width;
 		bufferHeight = VI.height;
@@ -270,9 +284,11 @@ void GraphicsDrawer::_updateScreenCoordsViewport(const FrameBuffer * _pBuffer) c
 		bufferWidth = pCurrentBuffer->m_width;
 		bufferHeight = VI_GetMaxBufferHeight(bufferWidth);
 		viewportScaleX = viewportScaleY = pCurrentBuffer->m_scale;
+		X = roundup(f32(pCurrentBuffer->m_originX), viewportScaleX);
+		Y = roundup(f32(pCurrentBuffer->m_originY), viewportScaleY);
 	}
 
-	gfxContext.setViewport(0, 0, (s32)(bufferWidth * viewportScaleX), (s32)(bufferHeight * viewportScaleY));
+	gfxContext.setViewport(X, Y, roundup(f32(bufferWidth), viewportScaleX), roundup(f32(bufferHeight), viewportScaleY));
 	gSP.changed |= CHANGED_VIEWPORT;
 }
 
@@ -656,11 +672,9 @@ void GraphicsDrawer::_updateStates(DrawingState _drawingState) const
 	if (!config.generalEmulation.enableFragmentDepthWrite)
 		return;
 
-	if (gDP.colorImage.address == gDP.depthImageAddress &&
+	if (isCurrentColorImageDepthImage() &&
 		config.generalEmulation.enableFragmentDepthWrite != 0 &&
-		config.frameBufferEmulation.N64DepthCompare == 0 &&
-		(config.generalEmulation.hacks & hack_ZeldaMM) == 0
-		) {
+		config.frameBufferEmulation.N64DepthCompare == 0) {
 		// Current render target is depth buffer.
 		// Shader will set gl_FragDepth to shader color, see ShaderCombiner ctor
 		// Here we enable depth buffer write.
@@ -758,7 +772,7 @@ void GraphicsDrawer::drawTriangles()
 	triangles.maxElement = 0;
 }
 
-void GraphicsDrawer::drawScreenSpaceTriangle(u32 _numVtx)
+void GraphicsDrawer::drawScreenSpaceTriangle(u32 _numVtx, graphics::DrawModeParam _mode)
 {
 	if (_numVtx == 0 || !_canDraw())
 		return;
@@ -776,13 +790,14 @@ void GraphicsDrawer::drawScreenSpaceTriangle(u32 _numVtx)
 	gfxContext.enable(enable::CULL_FACE, false);
 
 	Context::DrawTriangleParameters triParams;
-	triParams.mode = drawmode::TRIANGLE_STRIP;
+	triParams.mode = _mode;
 	triParams.flatColors = m_bFlatColors;
 	triParams.verticesCount = _numVtx;
 	triParams.vertices = m_dmaVertices.data();
 	triParams.combiner = currentCombiner();
 	gfxContext.drawTriangles(triParams);
 	g_debugger.addTriangles(triParams);
+	m_dmaVerticesNum = 0;
 
 	frameBufferList().setBufferChanged(maxY);
 	gSP.changed |= CHANGED_GEOMETRYMODE;
@@ -1013,7 +1028,9 @@ bool texturedRectDepthBufferCopy(const GraphicsDrawer::TexturedRectParams & _par
 	// Works only with depth buffer emulation enabled.
 	// Load of arbitrary data to that area causes weird camera rotation in CBFD.
 	const gDPTile * pTile = gSP.textureTile[0];
-	if (pTile->loadType == LOADTYPE_BLOCK && gDP.textureImage.size == 2 && gDP.textureImage.address >= gDP.depthImageAddress &&  gDP.textureImage.address < (gDP.depthImageAddress + gDP.colorImage.width*gDP.colorImage.width * 6 / 4)) {
+	if (pTile->loadType == LOADTYPE_BLOCK && gDP.textureImage.size == 2 &&
+		gDP.textureImage.address >= gDP.depthImageAddress &&
+		gDP.textureImage.address < (gDP.depthImageAddress + gDP.colorImage.width*gDP.scissor.lry*2)) {
 		if (config.frameBufferEmulation.copyDepthToRDRAM == Config::cdDisable)
 			return true;
 		FrameBuffer * pBuffer = frameBufferList().getCurrent();
@@ -1156,7 +1173,7 @@ void GraphicsDrawer::drawTexturedRect(const TexturedRectParams & _params)
 	const FrameBuffer * pCurrentBuffer = _params.pBuffer;
 	DisplayWindow & wnd = dwnd();
 	TextureCache & cache = textureCache();
-	const bool bUseBilinear = (gDP.otherMode.textureFilter | (gSP.objRendermode&G_OBJRM_BILERP)) != 0;
+	const bool bUseBilinear = gDP.otherMode.textureFilter != 0;
 	const bool bUseTexrectDrawer = config.generalEmulation.enableNativeResTexrects != 0
 		&& bUseBilinear
 		&& pCurrentCombiner->usesTexture()
@@ -1339,31 +1356,29 @@ void GraphicsDrawer::drawTexturedRect(const TexturedRectParams & _params)
 			m_rect[i].x *= scale;
 	}
 
-	if (bUseTexrectDrawer)
-		m_texrectDrawer.add();
-	else {
-		_updateScreenCoordsViewport();
+	if (bUseTexrectDrawer && m_texrectDrawer.add())
+		return;
 
-		Context::DrawRectParameters rectParams;
-		rectParams.mode = drawmode::TRIANGLE_STRIP;
-		rectParams.verticesCount = 4;
-		rectParams.vertices = m_rect;
-		rectParams.combiner = currentCombiner();
-		gfxContext.drawRects(rectParams);
-		if (g_debugger.isCaptureMode()) {
-			m_rect[0].x = _params.ulx;
-			m_rect[0].y = _params.uly;
-			m_rect[1].x = _params.lrx;
-			m_rect[1].y = _params.uly;
-			m_rect[2].x = _params.ulx;
-			m_rect[2].y = _params.lry;
-			m_rect[3].x = _params.lrx;
-			m_rect[3].y = _params.lry;
-			g_debugger.addRects(rectParams);
-		}
-
-		gSP.changed |= CHANGED_GEOMETRYMODE | CHANGED_VIEWPORT;
+	_updateScreenCoordsViewport(_params.pBuffer);
+	Context::DrawRectParameters rectParams;
+	rectParams.mode = drawmode::TRIANGLE_STRIP;
+	rectParams.verticesCount = 4;
+	rectParams.vertices = m_rect;
+	rectParams.combiner = currentCombiner();
+	gfxContext.drawRects(rectParams);
+	if (g_debugger.isCaptureMode()) {
+		m_rect[0].x = _params.ulx;
+		m_rect[0].y = _params.uly;
+		m_rect[1].x = _params.lrx;
+		m_rect[1].y = _params.uly;
+		m_rect[2].x = _params.ulx;
+		m_rect[2].y = _params.lry;
+		m_rect[3].x = _params.lrx;
+		m_rect[3].y = _params.lry;
+		g_debugger.addRects(rectParams);
 	}
+
+	gSP.changed |= CHANGED_GEOMETRYMODE | CHANGED_VIEWPORT;
 }
 
 void GraphicsDrawer::correctTexturedRectParams(TexturedRectParams & _params)
@@ -1514,14 +1529,12 @@ void GraphicsDrawer::_removeOSDMessage(OSDMessages::iterator _iter, Milliseconds
 	m_osdMessages.erase(_iter);
 }
 
-void GraphicsDrawer::clearDepthBuffer(u32 _ulx, u32 _uly, u32 _lrx, u32 _lry)
+void GraphicsDrawer::clearDepthBuffer()
 {
 	if (!_canDraw())
 		return;
 
-	depthBufferList().clearBuffer(_ulx, _uly, _lrx, _lry);
-
-	gfxContext.clearDepthBuffer();
+	depthBufferList().clearBuffer();
 
 	_updateDepthUpdate();
 }
@@ -1532,6 +1545,37 @@ void GraphicsDrawer::clearColorBuffer(float *_pColor)
 		gfxContext.clearColorBuffer(_pColor[0], _pColor[1], _pColor[2], _pColor[3]);
 	else
 		gfxContext.clearColorBuffer(0.0f, 0.0f, 0.0f, 0.0f);
+}
+
+bool GraphicsDrawer::isRejected(s32 _v0, s32 _v1, s32 _v2) const
+{
+	if (!GBI.isRej())
+		return false;
+
+	static gDPScissor rejectBox;
+	if (gDP.changed & CHANGED_SCISSOR) {
+		const f32 scissorWidth2 = (gDP.scissor.lrx - gDP.scissor.ulx) * (gSP.clipRatio - 1) * 0.5f;
+		const f32 scissorHeight2 = (gDP.scissor.lry - gDP.scissor.uly) * (gSP.clipRatio - 1) * 0.5f;
+		rejectBox.ulx = gDP.scissor.ulx - scissorWidth2;
+		rejectBox.lrx = gDP.scissor.lrx + scissorWidth2;
+		rejectBox.uly = gDP.scissor.uly - scissorHeight2;
+		rejectBox.lry = gDP.scissor.lry + scissorHeight2;
+	}
+	s32 verts[3] = { _v0, _v1, _v2 };
+	for (u32 i = 0; i < 3; ++i) {
+		const SPVertex & v = triangles.vertices[verts[i]];
+		const f32 sx = gSP.viewport.vtrans[0] + (v.x / v.w) * gSP.viewport.vscale[0];
+		if (sx < rejectBox.ulx)
+			return true;
+		if (sx > rejectBox.lrx)
+			return true;
+		const f32 sy = gSP.viewport.vtrans[1] + (v.y / v.w) * gSP.viewport.vscale[1];
+		if (sy < rejectBox.uly)
+			return true;
+		if (sy > rejectBox.lry)
+			return true;
+	}
+	return false;
 }
 
 void GraphicsDrawer::copyTexturedRect(const CopyRectParams & _params)
@@ -1644,6 +1688,12 @@ void GraphicsDrawer::blitOrCopyTexturedRect(const BlitOrCopyRectParams & _params
 	blitParams.dstY1 = _params.dstY1;
 	blitParams.mask = _params.mask;
 	blitParams.filter = _params.filter;
+	if (_params.invertX) {
+		std::swap(blitParams.srcX0, blitParams.srcX1);
+	}
+	if (_params.invertY) {
+		std::swap(blitParams.srcY0, blitParams.srcY1);
+	}
 
 	if (gfxContext.blitFramebuffers(blitParams))
 		return;
