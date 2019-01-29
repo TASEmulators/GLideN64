@@ -36,7 +36,9 @@ FrameBuffer::FrameBuffer()
 	, m_size(0)
 	, m_width(0)
 	, m_height(0)
-	, m_validityChecked(0)
+	, m_originX(0)
+	, m_originY(0)
+	, m_swapCount(0)
 	, m_scale(0)
 	, m_copiedToRdram(false)
 	, m_fingerprint(false)
@@ -56,6 +58,7 @@ FrameBuffer::FrameBuffer()
 	, m_copied(false)
 	, m_pFrameBufferCopyTexture(nullptr)
 	, m_copyFBO(ObjectHandle::defaultFramebuffer)
+	, m_validityChecked(0)
 {
 	m_loadTileOrigin.uls = m_loadTileOrigin.ult = 0;
 	m_pTexture = textureCache().addFrameBufferTexture(config.video.multisampling != 0);
@@ -155,17 +158,6 @@ void FrameBuffer::_setAndAttachTexture(ObjectHandle _fbo, CachedTexture *_pTextu
 	_setAndAttachBufferTexture(_fbo, _pTexture, _t, _multisampling);
 }
 
-bool FrameBuffer::_isMarioTennisScoreboard() const
-{
-	if ((config.generalEmulation.hacks&hack_scoreboard) != 0) {
-		if (VI.PAL)
-			return m_startAddress == 0x13b480 || m_startAddress == 0x26a530;
-		else
-			return m_startAddress == 0x13ba50 || m_startAddress == 0x264430;
-	}
-	return (config.generalEmulation.hacks&hack_scoreboardJ) != 0 && (m_startAddress == 0x134080 || m_startAddress == 0x1332f8);
-}
-
 bool FrameBuffer::isAuxiliary() const
 {
 	return m_width != VI.width;
@@ -173,7 +165,6 @@ bool FrameBuffer::isAuxiliary() const
 
 void FrameBuffer::init(u32 _address, u16 _format, u16 _size, u16 _width, bool _cfb)
 {
-	DisplayWindow & wnd = dwnd();
 	m_startAddress = _address;
 	m_width = _width;
 	m_height = _cfb ? VI.height : 1;
@@ -185,11 +176,12 @@ void FrameBuffer::init(u32 _address, u16 _format, u16 _size, u16 _width, bool _c
 	} else if (config.frameBufferEmulation.nativeResFactor != 0 && config.frameBufferEmulation.enable != 0) {
 		m_scale = static_cast<float>(config.frameBufferEmulation.nativeResFactor);
 	} else {
-		m_scale = wnd.getScaleX();
+		m_scale = dwnd().getScaleX();
 	}
 	m_cfb = _cfb;
 	m_cleared = false;
 	m_fingerprint = false;
+	m_swapCount = dwnd().getBuffersSwapCount();
 
 	const u16 maxHeight = VI_GetMaxBufferHeight(_width);
 	_initTexture(_width, maxHeight, _format, _size, m_pTexture);
@@ -208,7 +200,7 @@ void FrameBuffer::init(u32 _address, u16 _format, u16 _size, u16 _width, bool _c
 	} else
 		_setAndAttachTexture(m_FBO, m_pTexture, 0, false);
 
-	gfxContext.clearColorBuffer(0.0f, 0.0f, 0.0f, 0.0f);
+//	gfxContext.clearColorBuffer(0.0f, 0.0f, 0.0f, 0.0f);
 }
 
 void FrameBuffer::updateEndAddress()
@@ -559,6 +551,7 @@ void FrameBufferList::init()
 	 gfxContext.bindFramebuffer(bufferTarget::DRAW_FRAMEBUFFER, ObjectHandle::defaultFramebuffer);
 	 m_prevColorImageHeight = 0;
 	 m_overscan.init();
+	 m_rdpUpdate.init();
 }
 
 void FrameBufferList::destroy() {
@@ -663,6 +656,13 @@ FrameBuffer * FrameBufferList::findTmpBuffer(u32 _address)
 	return nullptr;
 }
 
+void FrameBufferList::updateCurrentBufferEndAddress()
+{
+	if (m_pCurrent == nullptr)
+		return;
+	m_pCurrent->updateEndAddress();
+	removeIntersections();
+}
 
 void FrameBufferList::_createScreenSizeBuffer()
 {
@@ -704,30 +704,75 @@ void FrameBufferList::saveBuffer(u32 _address, u16 _format, u16 _size, u16 _widt
 		m_pCurrent->m_readable = true;
 		m_pCurrent->updateEndAddress();
 
-		if (!m_pCurrent->_isMarioTennisScoreboard() &&
-			!m_pCurrent->m_isDepthBuffer &&
+		if (!m_pCurrent->m_isDepthBuffer &&
 			!m_pCurrent->m_copiedToRdram &&
 			!m_pCurrent->m_cfb &&
-			!m_pCurrent->m_cleared
-			&& m_pCurrent->m_RdramCopy.empty()
-			&& m_pCurrent->m_height > 1) {
+			!m_pCurrent->m_cleared &&
+			m_pCurrent->m_RdramCopy.empty() &&
+			m_pCurrent->m_height > 1) {
 			m_pCurrent->copyRdram();
 		}
 
 		removeIntersections();
 	}
 
+	const float scaleX = config.frameBufferEmulation.nativeResFactor == 0 ?
+		wnd.getScaleX() :
+		static_cast<float>(config.frameBufferEmulation.nativeResFactor);
+
 	if (m_pCurrent == nullptr || m_pCurrent->m_startAddress != _address || m_pCurrent->m_width != _width)
 		m_pCurrent = findBuffer(_address);
-	const float scaleX = config.frameBufferEmulation.nativeResFactor == 0 ?
-				wnd.getScaleX() :
-				static_cast<float>(config.frameBufferEmulation.nativeResFactor);
-	if (m_pCurrent != nullptr) {
-		if ((m_pCurrent->m_startAddress != _address) ||
-			(m_pCurrent->m_width != _width) ||
-			(m_pCurrent->m_size < _size) ||
-			(m_pCurrent->m_scale != scaleX))
+
+	auto isSubBuffer = [_address, _width, _size, &wnd](const FrameBuffer * _pBuffer) -> bool
+	{
+		if (_pBuffer->m_swapCount == wnd.getBuffersSwapCount() &&
+			!_pBuffer->m_cfb &&
+			_pBuffer->m_width == _width &&
+			_pBuffer->m_size == _size)
 		{
+			const u32 stride = _width << _size >> 1;
+			const u32 diffFromStart = _address - _pBuffer->m_startAddress;
+			if (diffFromStart % stride != 0)
+				return true;
+			const u32 diffFromEnd = _pBuffer->m_endAddress - _address + 1;
+			if ((diffFromEnd / stride > 5))
+				return true;
+		}
+		return false;
+	};
+
+	auto isOverlappingBuffer = [_address, _width, _size](const FrameBuffer * _pBuffer) -> bool
+	{
+		if (_pBuffer->m_width == _width && _pBuffer->m_size == _size) {
+			const u32 stride = _width << _size >> 1;
+			const u32 diffEnd = _pBuffer->m_endAddress - _address + 1;
+			if ((diffEnd / stride < 5))
+				return true;
+		}
+		return false;
+	};
+
+	if (m_pCurrent != nullptr) {
+		m_pCurrent->m_originX = m_pCurrent->m_originY = 0;
+		if ((m_pCurrent->m_startAddress != _address)) {
+			if (isSubBuffer(m_pCurrent)) {
+				const u32 stride = _width << _size >> 1;
+				const u32 addrOffset = _address - m_pCurrent->m_startAddress;
+				m_pCurrent->m_originX = (addrOffset % stride) >> (_size - 1);
+				m_pCurrent->m_originY = addrOffset / stride;
+				gSP.changed |= CHANGED_VIEWPORT;
+				gDP.changed |= CHANGED_SCISSOR;
+				return;
+			} else if (isOverlappingBuffer(m_pCurrent)) {
+				m_pCurrent->m_endAddress = _address - 1;
+				m_pCurrent = nullptr;
+			} else {
+				removeBuffer(m_pCurrent->m_startAddress);
+				m_pCurrent = nullptr;
+			}
+		} else if ((m_pCurrent->m_width != _width) ||
+					(m_pCurrent->m_size < _size) ||
+					(m_pCurrent->m_scale != scaleX)) {
 			removeBuffer(m_pCurrent->m_startAddress);
 			m_pCurrent = nullptr;
 		} else {
@@ -756,9 +801,9 @@ void FrameBufferList::saveBuffer(u32 _address, u16 _format, u16 _size, u16 _widt
 		FrameBuffer & buffer = m_list.front();
 		buffer.init(_address, _format, _size, _width, _cfb);
 		m_pCurrent = &buffer;
-
-		if (m_pCurrent->_isMarioTennisScoreboard() || ((config.generalEmulation.hacks & hack_legoRacers) != 0 && _width == VI.width))
-			RDRAMtoColorBuffer::get().copyFromRDRAM(m_pCurrent->m_startAddress + 4, true);
+		RDRAMtoColorBuffer::get().copyFromRDRAM(m_pCurrent);
+		if (_cfb)
+			m_pCurrent->copyRdram();
 	}
 
 	if (_address == gDP.depthImageAddress)
@@ -774,13 +819,13 @@ void FrameBufferList::saveBuffer(u32 _address, u16 _format, u16 _size, u16 _widt
 		(config.generalEmulation.hacks&hack_LoadDepthTextures) == 0) {
 		// N64 games may use partial depth buffer clear for aux buffers
 		// It will not work for GL, so we have to force clear depth buffer for aux buffer
-		const DepthBuffer * pDepth = m_pCurrent->m_pDepthBuffer;
-		wnd.getDrawer().clearDepthBuffer(pDepth->m_ulx, pDepth->m_uly, pDepth->m_lrx, pDepth->m_lry);
+		wnd.getDrawer().clearDepthBuffer();
 	}
 
 	m_pCurrent->m_isDepthBuffer = _address == gDP.depthImageAddress;
 	m_pCurrent->m_isPauseScreen = m_pCurrent->m_isOBScreen = false;
 	m_pCurrent->m_copied = false;
+	m_pCurrent->m_swapCount = wnd.getBuffersSwapCount();
 }
 
 void FrameBufferList::copyAux()
@@ -873,9 +918,11 @@ void FrameBufferList::attachDepthBuffer()
 
 		bool goodDepthBufferTexture = false;
 		if (Context::DepthFramebufferTextures) {
-			goodDepthBufferTexture = Context::WeakBlitFramebuffer ?
-				pDepthBuffer->m_pDepthBufferTexture->realWidth == pCurrent->m_pTexture->realWidth :
-				pDepthBuffer->m_pDepthBufferTexture->realWidth >= pCurrent->m_pTexture->realWidth;
+			if (Context::WeakBlitFramebuffer)
+				goodDepthBufferTexture = pDepthBuffer->m_pDepthBufferTexture->realWidth == pCurrent->m_pTexture->realWidth;
+			else
+				goodDepthBufferTexture = pDepthBuffer->m_pDepthBufferTexture->realWidth >= pCurrent->m_pTexture->realWidth ||
+											std::abs((s32)(pCurrent->m_width - pDepthBuffer->m_width)) < 2;
 		} else {
 			goodDepthBufferTexture = pDepthBuffer->m_depthRenderbufferWidth == pCurrent->m_pTexture->realWidth;
 		}
@@ -977,75 +1024,95 @@ void FrameBufferList::_renderScreenSizeBuffer()
 	wnd.swapBuffers();
 	gfxContext.bindFramebuffer(bufferTarget::DRAW_FRAMEBUFFER, pBuffer->m_FBO);
 	if (config.frameBufferEmulation.forceDepthBufferClear != 0) {
-		gfxContext.clearDepthBuffer();
+		drawer.clearDepthBuffer();
 	}
 	gDP.changed |= CHANGED_SCISSOR;
 }
 
-struct RdpUpdateResult {
-	u32 vi_vres;
-	u32 vi_hres;
-	u32 vi_v_start;
-	u32 vi_h_start;
-	u32 vi_x_start;
-	u32 vi_y_start;
-	u32 vi_x_add;
-	u32 vi_y_add;
-	u32 vi_width;
-	u32 vi_origin;
-	bool vi_lowerfield;
-	bool vi_fsaa;
-	bool vi_divot;
-	bool vi_ispal;
-};
-
-/* This function taken from angrylion's code and adopted for my needs */
-static
-bool rdp_update(RdpUpdateResult & _result)
+void FrameBufferList::RdpUpdate::init()
 {
-	static const u32 PRESCALE_WIDTH = 640;
-	static const u32 PRESCALE_HEIGHT = 625;
-	static u32 oldvstart = 0;
-	static bool prevwasblank = false;
+	oldvstart = 0U;
+	prevvicurrent = 0U;
+	prevwasblank = false;
+	prevserrate = false;
+	oldlowerfield = false;
+	emucontrolsvicurrent = -1;
+}
 
-	const u32 x_add = _SHIFTR(*REG.VI_X_SCALE, 0, 12);
-	const u32 y_add = _SHIFTR(*REG.VI_Y_SCALE, 0, 12);
+/* This function was taken from angrylion's code and adopted for my needs */
+bool FrameBufferList::RdpUpdate::update(RdpUpdateResult & _result)
+{
+	static const s32 PRESCALE_WIDTH = 640U;
+	static const s32 PRESCALE_HEIGHT = 625U;
+
+	const s32 x_add = _SHIFTR(*REG.VI_X_SCALE, 0, 12);
+	const s32 y_add = _SHIFTR(*REG.VI_Y_SCALE, 0, 12);
 	const u32 v_sync = _SHIFTR(*REG.VI_V_SYNC, 0, 10);
 	const bool ispal = (v_sync > 550);
-	const u32 x1 = _SHIFTR( *REG.VI_H_START, 16, 10 );
-	const u32 y1 = _SHIFTR( *REG.VI_V_START, 16, 10 );
-	const u32 x2 = _SHIFTR( *REG.VI_H_START, 0, 10 );
-	const u32 y2 = _SHIFTR( *REG.VI_V_START, 0, 10 );
+	const s32 x1 = _SHIFTR( *REG.VI_H_START, 16, 10 );
+	const s32 y1 = _SHIFTR( *REG.VI_V_START, 16, 10 );
+	const s32 x2 = _SHIFTR( *REG.VI_H_START, 0, 10 );
+	const s32 y2 = _SHIFTR( *REG.VI_V_START, 0, 10 );
 
-	const u32 delta_x = x2 - x1;
-	const u32 delta_y = y2 - y1;
+	const s32 delta_x = x2 - x1;
+	const s32 delta_y = y2 - y1;
 	const u32 vitype = _SHIFTR( *REG.VI_STATUS, 0, 2 );
 
-	const bool interlaced = (*REG.VI_STATUS & 0x40) != 0;
-	const bool lowerfield = interlaced ? y1 > oldvstart : false;
-	oldvstart = y1;
+	const bool serration_pulses = (*REG.VI_STATUS & 0x40) != 0;
+	const bool validinterlace = ((vitype & 2) != 0 ) && serration_pulses;
+	if (validinterlace && prevserrate && emucontrolsvicurrent < 0)
+		emucontrolsvicurrent = (*REG.VI_V_CURRENT_LINE & 1) != prevvicurrent ? 1 : 0;
 
-	u32 hres = delta_x;
-	u32 vres = delta_y;
+	bool lowerfield = 0;
+	if (validinterlace) {
+		if (emucontrolsvicurrent == 1)
+			lowerfield = (*REG.VI_V_CURRENT_LINE & 1) == 0;
+		else if (!emucontrolsvicurrent) {
+			if (y1 == oldvstart)
+				lowerfield = !oldlowerfield;
+			else
+				lowerfield = y1 < oldvstart;
+		}
+	}
+
+	oldlowerfield = lowerfield;
+
+	if (validinterlace) {
+		prevserrate = true;
+		prevvicurrent = *REG.VI_V_CURRENT_LINE & 1;
+		oldvstart = y1;
+	} else
+		prevserrate = false;
+
+	s32 hres = delta_x;
+	s32 vres = delta_y;
 	s32 h_start = x1 - (ispal ? 128 : 108);
-	s32 v_start = y1 - (ispal ? 47 : 37);
+	s32 v_start = (y1 - (ispal ? 44 : 34)) / 2;
 	u32 x_start = _SHIFTR(*REG.VI_X_SCALE, 16, 12);
 	u32 y_start = _SHIFTR(*REG.VI_Y_SCALE, 16, 12);
 
+	bool h_start_clamped = h_start < 0;
 	if (h_start < 0) {
 		x_start -= x_add * h_start;
+		hres += h_start;
+
 		h_start = 0;
 	}
-	v_start >>= 1;
-	v_start &= -int(v_start >= 0);
+
+	if (v_start < 0) {
+		y_start += (y_add * (u32)(-v_start));
+		v_start = 0;
+	}
+
 	vres >>= 1;
 
-	if (hres > PRESCALE_WIDTH - h_start)
+	const bool hres_clamped = hres + h_start > PRESCALE_WIDTH;
+	if (hres_clamped)
 		hres = PRESCALE_WIDTH - h_start;
-	if (vres > PRESCALE_HEIGHT - v_start)
+	if (vres + v_start > PRESCALE_HEIGHT)
 		vres = PRESCALE_HEIGHT - v_start;
 
-	s32 vactivelines = v_sync - (ispal ? 47 : 37);
+	s32 vactivelines = v_sync - (ispal ? 44 : 34);
 	if (vactivelines > PRESCALE_HEIGHT) {
 		LOG(LOG_MINIMAL, "VI_V_SYNC_REG too big\n");
 		return false;
@@ -1059,7 +1126,7 @@ bool rdp_update(RdpUpdateResult & _result)
 	if (hres <= 0 || vres <= 0 || ((vitype & 2) == 0 && prevwasblank)) /* early return. */
 		return false;
 
-	if (vitype >> 1 == 0) {
+	if ((vitype & 2) == 0) {
 		prevwasblank = true;
 		return false;
 	}
@@ -1075,6 +1142,8 @@ bool rdp_update(RdpUpdateResult & _result)
 	_result.vi_y_start = y_start;
 	_result.vi_x_add = x_add;
 	_result.vi_y_add = y_add;
+	_result.vi_minhpass = h_start_clamped ? 0 : 8;
+	_result.vi_maxhpass = hres_clamped ? 0 : 7;
 	_result.vi_width = _SHIFTR(*REG.VI_WIDTH, 0, 12);
 	_result.vi_lowerfield = lowerfield;
 	_result.vi_origin = _SHIFTR(*REG.VI_ORIGIN, 0, 24);
@@ -1229,9 +1298,9 @@ void FrameBufferList::OverscanBuffer::draw(u32 _fullHeight, bool _PAL)
 	const s32 top = static_cast<s32>(overscan.top * m_scale);
 	const s32 bottom = static_cast<s32>(overscan.bottom * m_scale);
 	blitParams.srcX0 = left;
-	blitParams.srcY0 = top;
+	blitParams.srcY0 = static_cast<s32>(_fullHeight * m_scale) - bottom;
 	blitParams.srcX1 = m_bufferWidth - right;
-	blitParams.srcY1 = static_cast<s32>(_fullHeight * m_scale) - bottom;
+	blitParams.srcY1 = top;
 	blitParams.srcWidth = m_pTexture->realWidth;
 	blitParams.srcHeight = m_pTexture->realHeight;
 	blitParams.dstX0 = m_hOffset;
@@ -1245,18 +1314,15 @@ void FrameBufferList::OverscanBuffer::draw(u32 _fullHeight, bool _PAL)
 	blitParams.tex[0] = m_pTexture;
 	blitParams.combiner = CombinerInfo::get().getTexrectCopyProgram();
 	blitParams.readBuffer = m_FBO;
-	blitParams.invertY = true;
+	blitParams.invertY = false;
 
 	gfxContext.clearColorBuffer(0.0f, 0.0f, 0.0f, 0.0f);
-	drawer.blitOrCopyTexturedRect(blitParams);
-//	drawer.copyTexturedRect(blitParams);
+//	drawer.blitOrCopyTexturedRect(blitParams);
+	drawer.copyTexturedRect(blitParams);
 }
 
 void FrameBufferList::renderBuffer()
 {
-	if (VI.width == 0 || *REG.VI_WIDTH == 0 || *REG.VI_H_START == 0) // H width is zero. Don't draw
-		return;
-
 	if (g_debugger.isDebugMode()) {
 		g_debugger.draw();
 		return;
@@ -1268,8 +1334,14 @@ void FrameBufferList::renderBuffer()
 	}
 
 	RdpUpdateResult rdpRes;
-	if (!rdp_update(rdpRes))
+	if (!m_rdpUpdate.update(rdpRes)) {
+		gfxContext.bindFramebuffer(bufferTarget::DRAW_FRAMEBUFFER, ObjectHandle::defaultFramebuffer);
+		gfxContext.clearColorBuffer(0.0f, 0.0f, 0.0f, 0.0f);
+		dwnd().swapBuffers();
+		if (m_pCurrent != nullptr)
+			gfxContext.bindFramebuffer(bufferTarget::DRAW_FRAMEBUFFER, m_pCurrent->m_FBO);
 		return;
+	}
 
 	FrameBuffer *pBuffer = findBuffer(rdpRes.vi_origin);
 	if (pBuffer == nullptr)
@@ -1283,7 +1355,6 @@ void FrameBufferList::renderBuffer()
 	s32 dstX0, dstX1, dstY0, dstY1;
 	s32 srcWidth, srcHeight;
 	s32 XoffsetLeft = 0, XoffsetRight = 0;
-	s32 Xdivot = 0;
 	s32 srcPartHeight = 0;
 	s32 dstPartHeight = 0;
 
@@ -1306,11 +1377,16 @@ void FrameBufferList::renderBuffer()
 		XoffsetLeft = addrOffset % rdpRes.vi_width;
 	}
 
-	if (rdpRes.vi_lowerfield) {
+	if (!rdpRes.vi_lowerfield && rdpRes.vi_width > 320) {
 		if (srcY0 > 0)
 			--srcY0;
 		if (dstY0 > 0)
 			--dstY0;
+	}
+
+	if ((config.generalEmulation.hacks & hack_LodeRunner) != 0) {
+		srcY0 = 1;
+		XoffsetRight = XoffsetLeft = 0;
 	}
 
 	srcWidth = min(rdpRes.vi_width, (rdpRes.vi_hres * rdpRes.vi_x_add) >> 10);
@@ -1335,25 +1411,24 @@ void FrameBufferList::renderBuffer()
 	for (const auto & f : postProcessor.getPostprocessingList())
 		pFilteredBuffer = f(postProcessor, pFilteredBuffer);
 
-	if (rdpRes.vi_fsaa && rdpRes.vi_divot)
-		Xdivot = 1;
-
 	const f32 viScaleX = _FIXED2FLOAT(_SHIFTR(*REG.VI_X_SCALE, 0, 12), 10);
 	const f32 srcScaleX = pFilteredBuffer->m_scale;
-	const f32 dstScaleX = m_overscan.getScaleX();
-	const s32 hx0 = rdpRes.vi_h_start;
+	const f32 dstScaleX = dwnd().getWidth() / (640 * viScaleX);
+	const s32 hx0 = rdpRes.vi_h_start + rdpRes.vi_minhpass;
 	const s32 h0 = (rdpRes.vi_ispal ? 128 : 108);
 	const s32 hEnd = _SHIFTR(*REG.VI_H_START, 0, 10);
-	const s32 hx1 = max(0, h0 + 640 - hEnd);
+	const s32 hx1 = max(0, h0 + 640 - hEnd + (s32)rdpRes.vi_maxhpass);
 	//const s32 hx1 = hx0 + rdpRes.vi_hres;
-	dstX0 = (s32)((hx0 * viScaleX + XoffsetRight) * dstScaleX);
-	dstX1 = m_overscan.getDrawingWidth() - (s32)((hx1 * viScaleX + Xdivot) * dstScaleX);
+	dstX0 = (s32)((hx0 * viScaleX + f32(XoffsetRight)) * dstScaleX);
+	dstX1 = m_overscan.getDrawingWidth() - (s32)(hx1 * viScaleX * dstScaleX);
 
 	const f32 srcScaleY = pFilteredBuffer->m_scale;
 	CachedTexture * pBufferTexture = pFilteredBuffer->m_pTexture;
-	s32 srcCoord[4] = { (s32)(XoffsetLeft * srcScaleX),
+	const s32 cutleft = static_cast<s32>(rdpRes.vi_minhpass * viScaleX * srcScaleX);
+	const s32 cutright = static_cast<s32>(rdpRes.vi_maxhpass * viScaleX * srcScaleX);
+	s32 srcCoord[4] = { (s32)((XoffsetLeft) * srcScaleX) + cutleft,
 						(s32)(srcY0*srcScaleY),
-						(s32)((srcWidth + XoffsetLeft - XoffsetRight - Xdivot) * srcScaleX),
+						(s32)((srcWidth + XoffsetLeft - XoffsetRight) * srcScaleX) - cutright,
 						min((s32)(srcY1*srcScaleY), (s32)pBufferTexture->realHeight) };
 	if (srcCoord[2] > pBufferTexture->realWidth || srcCoord[3] > pBufferTexture->realHeight) {
 		removeBuffer(pBuffer->m_startAddress);
@@ -1425,9 +1500,7 @@ void FrameBufferList::renderBuffer()
 		blitParams.srcY1 = min((s32)(srcY1*srcScaleY), (s32)pFilteredBuffer->m_pTexture->realHeight);
 		blitParams.srcWidth = pBufferTexture->realWidth;
 		blitParams.srcHeight = pBufferTexture->realHeight;
-		blitParams.dstX0 = hOffset;
 		blitParams.dstY0 = vOffset + (s32)(dstY0*dstScaleY);
-		blitParams.dstX1 = hOffset + dstX1;
 		blitParams.dstY1 = vOffset + (s32)(dstY1*dstScaleY);
 		blitParams.dstWidth = m_overscan.getBufferWidth();
 		blitParams.dstHeight = m_overscan.getBufferHeight();
@@ -1445,7 +1518,7 @@ void FrameBufferList::renderBuffer()
 		gfxContext.bindFramebuffer(bufferTarget::DRAW_FRAMEBUFFER, m_pCurrent->m_FBO);
 	}
 	if (config.frameBufferEmulation.forceDepthBufferClear != 0) {
-		gfxContext.clearDepthBuffer();
+		drawer.clearDepthBuffer();
 	}
 
 	const s32 X = hOffset;
@@ -1460,6 +1533,10 @@ void FrameBufferList::renderBuffer()
 void FrameBufferList::fillRDRAM(s32 ulx, s32 uly, s32 lrx, s32 lry)
 {
 	if (m_pCurrent == nullptr)
+		return;
+
+	if (config.frameBufferEmulation.copyFromRDRAM !=0 && !m_pCurrent->m_isDepthBuffer)
+		// Do not write to RDRAM color buffer if copyFromRDRAM enabled.
 		return;
 
 	ulx = (s32)min(max((float)ulx, gDP.scissor.ulx), gDP.scissor.lrx);

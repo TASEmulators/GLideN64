@@ -75,7 +75,7 @@ std::vector<SpecialMicrocodeInfo> specialMicrocodes =
 	{ ZSortBOSS,	false,	false,	false,	0x75ed44cc }, // World Driver Championship, European
 	{ F3D,			true,	false,	true,	0x77195a68 }, // Dark Rift
 	{ L3D,			true,	true,	true,	0x771ce0c4 }, // RSP SW Version: 2.0D, 04-01-96 Blast Corps
-	{ F3D,			false,	false,	true,	0x7d372819 }, // Super Mario 64, Pachinko nichi 365
+	{ F3D,			false,	false,	false,	0x7d372819 }, // Pachinko nichi 365
 	{ F3DDKR,		false,	true,	true,	0x8d91244f }, // Diddy Kong Racing
 	{ F3DBETA,		false,	true,	true,	0x94c4c833 }, // Star Wars Shadows of Empire
 	{ S2DEX,		false,	true,	false,	0x9df31081 }, // RSP Gfx ucode S2DEX  1.06 Yoshitaka Yasumoto Nintendo
@@ -89,7 +89,6 @@ std::vector<SpecialMicrocodeInfo> specialMicrocodes =
 	{ F3D,			false,	false,	false,	0xe01e14be }, // Eikou no Saint Andrews
 	{ F3DEX2ACCLAIM,true,	true,	false,	0xe44df568 }, // Acclaim games: Turok2 & 3, Armories and South park
 	{ F3D,			false,	true,	false,	0xe62a706d }, // Fast3D
-	{ F3D,			false,	false,	true,	0xfff0637d }, // RSP SW Version: 2.0D, 04-01-96, Mischief Makers
 };
 
 u32 G_RDPHALF_1, G_RDPHALF_2, G_RDPHALF_CONT;
@@ -226,6 +225,10 @@ void GBIInfo::_makeCurrent(MicrocodeInfo * _pCurrent)
 				S2DEX_Init();
 				m_hwlSupported = false;
 			break;
+			case S2DEX_1_03:
+				S2DEX_1_03_Init();
+				m_hwlSupported = false;
+				break;
 			case S2DEX2:
 				S2DEX2_Init();
 				m_hwlSupported = false;
@@ -389,6 +392,7 @@ void GBIInfo::loadMicrocode(u32 uc_start, u32 uc_dstart, u16 uc_dsize)
 				type = F3D;
 			} else if (strncmp(&uc_str[4], "Gfx", 3) == 0) {
 				current.NoN = (strstr( uc_str + 4, ".NoN") != nullptr);
+				current.Rej = (strstr(uc_str + 4, ".Rej") != nullptr);
 
 				if (strncmp( &uc_str[14], "F3D", 3 ) == 0) {
 					if (uc_str[28] == '1' || strncmp(&uc_str[28], "0.95", 4) == 0 || strncmp(&uc_str[28], "0.96", 4) == 0)
@@ -412,9 +416,10 @@ void GBIInfo::loadMicrocode(u32 uc_start, u32 uc_dstart, u16 uc_dsize)
 						type = F3DTEXA;
 					else if (strncmp(&uc_str[14], "F3DAM", 5) == 0)
 						type = F3DAM;
-					else if (strncmp(&uc_str[14], "F3DLX.Rej", 9) == 0)
+					else if (strncmp(&uc_str[14], "F3DLX.Rej", 9) == 0) {
 						current.NoN = true;
-					else if (strncmp(&uc_str[14], "F3DLP.Rej", 9) == 0) {
+						current.cullBoth = false;
+					} else if (strncmp(&uc_str[14], "F3DLP.Rej", 9) == 0) {
 						current.texturePersp = false;
 						current.NoN = true;
 					}
@@ -430,9 +435,12 @@ void GBIInfo::loadMicrocode(u32 uc_start, u32 uc_dstart, u16 uc_dsize)
 				else if (strncmp( &uc_str[14], "S2D", 3 ) == 0) {
 					u32 t = 20;
 					while (!std::isdigit(uc_str[t]) && t++ < j);
-					if (uc_str[t] == '1')
-						type = S2DEX;
-					else if (uc_str[t] == '2')
+					if (uc_str[t] == '1') {
+						if (strncmp(&uc_str[21], "1.03", 4) == 0)
+							type = S2DEX_1_03;
+						else
+							type = S2DEX;
+					} else if (uc_str[t] == '2')
 						type = S2DEX2;
 					current.texturePersp = false;
 				}

@@ -121,7 +121,7 @@ public:
 
 	void showMessage(std::string _message, Milliseconds _interval);
 
-	void clearDepthBuffer(u32 _ulx, u32 _uly, u32 _lrx, u32 _lry);
+	void clearDepthBuffer();
 
 	void clearColorBuffer(float * _pColor);
 
@@ -131,6 +131,8 @@ public:
 	{
 		return (triangles.vertices[_v0].clip & triangles.vertices[_v1].clip & triangles.vertices[_v2].clip) != 0;
 	}
+
+	bool isRejected(s32 _v0, s32 _v1, s32 _v2) const;
 
 	SPVertex & getVertex(u32 _v) { return triangles.vertices[_v]; }
 

@@ -515,8 +515,6 @@ public:
 	void update(bool _force) override
 	{
 		int textureFilter = gDP.otherMode.textureFilter;
-		if ((gSP.objRendermode&G_OBJRM_BILERP) != 0)
-			textureFilter |= 2;
 		uTextureFilterMode.set(textureFilter, _force);
 		uTextureFormat.set(gSP.textureTile[0]->format, gSP.textureTile[1]->format, _force);
 		uTextureConvert.set(gDP.otherMode.convert_one, _force);
@@ -613,15 +611,15 @@ public:
 		if (pBuffer == nullptr || pBuffer->m_pDepthBuffer == nullptr)
 			return;
 
-		const int nDepthEnabled = (gSP.geometryMode & G_ZBUFFER) > 0 ? 1 : 0;
-		uEnableDepth.set(nDepthEnabled, _force);
-		if (nDepthEnabled == 0) {
-			uEnableDepthCompare.set(0, _force);
-			uEnableDepthUpdate.set(0, _force);
-		}
-		else {
+		const bool nDepthEnabled = ((gSP.geometryMode & G_ZBUFFER) || gDP.otherMode.depthSource == G_ZS_PRIM) &&
+									gDP.otherMode.cycleType <= G_CYC_2CYCLE;
+		uEnableDepth.set(nDepthEnabled ? 1 : 0, _force);
+		if (nDepthEnabled) {
 			uEnableDepthCompare.set(gDP.otherMode.depthCompare, _force);
 			uEnableDepthUpdate.set(gDP.otherMode.depthUpdate, _force);
+		} else {
+			uEnableDepthCompare.set(0, _force);
+			uEnableDepthUpdate.set(0, _force);
 		}
 		uDepthMode.set(gDP.otherMode.depthMode, _force);
 		uDepthSource.set(gDP.otherMode.depthSource, _force);
@@ -671,8 +669,7 @@ public:
 	void update(bool _force) override
 	{
 		int renderTarget = 0;
-		if ((gDP.colorImage.address == gDP.depthImageAddress ) ||
-			(gDP.fillColor.color == DepthClearColor && gDP.otherMode.cycleType == G_CYC_FILL)) {
+		if (isCurrentColorImageDepthImage()) {
 			renderTarget = gDP.otherMode.depthCompare + 1;
 		}
 		uRenderTarget.set(renderTarget, _force);
