@@ -34,6 +34,7 @@ void _loadSettings(QSettings & settings)
 	settings.beginGroup("texture");
 	config.texture.maxAnisotropy = settings.value("maxAnisotropy", config.texture.maxAnisotropy).toInt();
 	config.texture.bilinearMode = settings.value("bilinearMode", config.texture.bilinearMode).toInt();
+	config.texture.enableHalosRemoval = settings.value("enableHalosRemoval", config.texture.enableHalosRemoval).toInt();
 	config.texture.screenShotFormat = settings.value("screenShotFormat", config.texture.screenShotFormat).toInt();
 	settings.endGroup();
 
@@ -43,8 +44,12 @@ void _loadSettings(QSettings & settings)
 	config.generalEmulation.enableHWLighting = settings.value("enableHWLighting", config.generalEmulation.enableHWLighting).toInt();
 	config.generalEmulation.enableShadersStorage = settings.value("enableShadersStorage", config.generalEmulation.enableShadersStorage).toInt();
 	config.generalEmulation.enableCustomSettings = settings.value("enableCustomSettings", config.generalEmulation.enableCustomSettings).toInt();
-	config.generalEmulation.correctTexrectCoords = settings.value("correctTexrectCoords", config.generalEmulation.correctTexrectCoords).toInt();
-	config.generalEmulation.enableNativeResTexrects = settings.value("enableNativeResTexrects", config.generalEmulation.enableNativeResTexrects).toInt();
+	settings.endGroup();
+
+	settings.beginGroup("graphics2D");
+	config.graphics2D.correctTexrectCoords = settings.value("correctTexrectCoords", config.graphics2D.correctTexrectCoords).toInt();
+	config.graphics2D.enableNativeResTexrects = settings.value("enableNativeResTexrects", config.graphics2D.enableNativeResTexrects).toInt();
+	config.graphics2D.bgMode = settings.value("bgMode", config.graphics2D.bgMode).toInt();
 	settings.endGroup();
 
 	settings.beginGroup("frameBufferEmulation");
@@ -197,6 +202,7 @@ void writeSettings(const QString & _strIniFolder)
 	settings.beginGroup("texture");
 	settings.setValue("maxAnisotropy", config.texture.maxAnisotropy);
 	settings.setValue("bilinearMode", config.texture.bilinearMode);
+	settings.setValue("enableHalosRemoval", config.texture.enableHalosRemoval);
 	settings.setValue("screenShotFormat", config.texture.screenShotFormat);
 	settings.endGroup();
 
@@ -206,8 +212,12 @@ void writeSettings(const QString & _strIniFolder)
 	settings.setValue("enableHWLighting", config.generalEmulation.enableHWLighting);
 	settings.setValue("enableShadersStorage", config.generalEmulation.enableShadersStorage);
 	settings.setValue("enableCustomSettings", config.generalEmulation.enableCustomSettings);
-	settings.setValue("correctTexrectCoords", config.generalEmulation.correctTexrectCoords);
-	settings.setValue("enableNativeResTexrects", config.generalEmulation.enableNativeResTexrects);
+	settings.endGroup();
+
+	settings.beginGroup("graphics2D");
+	settings.setValue("correctTexrectCoords", config.graphics2D.correctTexrectCoords);
+	settings.setValue("enableNativeResTexrects", config.graphics2D.enableNativeResTexrects);
+	settings.setValue("bgMode", config.graphics2D.bgMode);
 	settings.endGroup();
 
 	settings.beginGroup("frameBufferEmulation");
@@ -379,6 +389,7 @@ void saveCustomRomSettings(const QString & _strIniFolder, const char * _strRomNa
 	settings.beginGroup("texture");
 	WriteCustomSetting(texture, maxAnisotropy);
 	WriteCustomSetting(texture, bilinearMode);
+	WriteCustomSetting(texture, enableHalosRemoval);
 	WriteCustomSetting(texture, screenShotFormat);
 	settings.endGroup();
 
@@ -387,8 +398,12 @@ void saveCustomRomSettings(const QString & _strIniFolder, const char * _strRomNa
 	WriteCustomSetting(generalEmulation, enableLOD);
 	WriteCustomSetting(generalEmulation, enableHWLighting);
 	WriteCustomSetting(generalEmulation, enableShadersStorage);
-	WriteCustomSetting(generalEmulation, correctTexrectCoords);
-	WriteCustomSetting(generalEmulation, enableNativeResTexrects);
+	settings.endGroup();
+
+	settings.beginGroup("graphics2D");
+	WriteCustomSetting(graphics2D, correctTexrectCoords);
+	WriteCustomSetting(graphics2D, enableNativeResTexrects);
+	WriteCustomSetting(graphics2D, bgMode);
 	settings.endGroup();
 
 	settings.beginGroup("frameBufferEmulation");

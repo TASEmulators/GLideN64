@@ -58,7 +58,7 @@ std::vector<SpecialMicrocodeInfo> specialMicrocodes =
 	{ F3D,			true,	false,	false,	0x16c3a775 }, // AeroFighters
 	{ F3DEX2CBFD,	true,	true,	false,	0x1b4ace88 }, // Conker's Bad Fur Day
 	{ F3DPD,		true,	true,	false,	0x1c4f7869 }, // Perfect Dark
-	{ F3DEX,		false,	false,	true,	0x1f24cc84 }, // Wayne Gretzky's 3D Hockey (U)
+	{ F3D,			false,	false,	true,	0x1f24cc84 }, // Wayne Gretzky's 3D Hockey (U)
 	{ F5Indi_Naboo,	false,	false,	false,	0x23fef05f }, // SW Ep.1 Battle for Naboo
 	{ Turbo3D,		false,	true,	false,	0x2bdcfc8a }, // Dark Rift, Turbo3D
 	{ F3DSETA,		false,	true,	true,	0x2edee7be }, // RSP SW Version: 2.0D, 04-01-96
@@ -78,7 +78,7 @@ std::vector<SpecialMicrocodeInfo> specialMicrocodes =
 	{ F3D,			false,	false,	false,	0x7d372819 }, // Pachinko nichi 365
 	{ F3DDKR,		false,	true,	true,	0x8d91244f }, // Diddy Kong Racing
 	{ F3DBETA,		false,	true,	true,	0x94c4c833 }, // Star Wars Shadows of Empire
-	{ S2DEX,		false,	true,	false,	0x9df31081 }, // RSP Gfx ucode S2DEX  1.06 Yoshitaka Yasumoto Nintendo
+	{ S2DEX_1_05,	false,	true,	false,	0x9df31081 }, // RSP Gfx ucode S2DEX  1.06 Yoshitaka Yasumoto Nintendo
 	{ T3DUX,		false,	true,	false,	0xbad437f2 }, // T3DUX vers 0.83 for Toukon Road
 	{ F3DJFG,		false,	true,	true,	0xbde9d1fb }, // Jet Force Gemini, Mickey
 	{ T3DUX,		false,	true,	false,	0xd0a1aa3d }, // T3DUX vers 0.85 for Toukon Road 2
@@ -221,18 +221,22 @@ void GBIInfo::_makeCurrent(MicrocodeInfo * _pCurrent)
 				L3DEX2_Init();
 				m_hwlSupported = false;
 			break;
-			case S2DEX:
-				S2DEX_Init();
-				m_hwlSupported = false;
-			break;
 			case S2DEX_1_03:
 				S2DEX_1_03_Init();
+				m_hwlSupported = false;
+				break;
+			case S2DEX_1_05:
+				S2DEX_1_05_Init();
+				m_hwlSupported = false;
+				break;
+			case S2DEX_1_07:
+				S2DEX_1_07_Init();
 				m_hwlSupported = false;
 				break;
 			case S2DEX2:
 				S2DEX2_Init();
 				m_hwlSupported = false;
-			break;
+				break;
 			case F3DDKR:
 				F3DDKR_Init();
 				m_hwlSupported = false;
@@ -438,8 +442,10 @@ void GBIInfo::loadMicrocode(u32 uc_start, u32 uc_dstart, u16 uc_dsize)
 					if (uc_str[t] == '1') {
 						if (strncmp(&uc_str[21], "1.03", 4) == 0)
 							type = S2DEX_1_03;
+						else if (strncmp(&uc_str[21], "1.05", 4) == 0)
+							type = S2DEX_1_05;
 						else
-							type = S2DEX;
+							type = S2DEX_1_07;
 					} else if (uc_str[t] == '2')
 						type = S2DEX2;
 					current.texturePersp = false;

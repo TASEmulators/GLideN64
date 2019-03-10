@@ -459,10 +459,10 @@ void F5INDI_RebuildAndAdjustColors(u32 _w0, u32 _w1)
 	std::vector<u32> vres(count);
 	for (u32 i = 0; i < count; ++i) {
 		u16 V = data[i ^ 1];
-		u32 I = (V >> 8) & 0xF8;
-		u32 J = (V & 0x7E0) >> 3;
-		u32 K = (V & 0x1F) << 3;
-		vres[i] = (I << 24) | (J << 16) | (K << 8) | 0xFF;
+		u32 R = (V >> 8) & 0xF8;
+		u32 G = (V & 0x7E0) >> 3;
+		u32 B = (V & 0x1F) << 3;
+		vres[i] = (R << 24) | (G << 16) | (B << 8) | 0xFF;
 	}
 	memcpy(DMEM + addr, vres.data(), count << 2);
 }
@@ -644,8 +644,7 @@ void F5INDI_CalcST(const u32* params, u32 * _st)
 		if (R > 0x0000FFFFFFFF)
 			R1 = 0x7FFF0000 | (R & 0xFFFF);
 		u32 D = static_cast<u32>(sqrt(R1));
-		D = (0xFFFFFFFF / D) >> 1;
-		D = (D * 0xAB) >> 16;
+		D = 0xFFFFFFFF / (D * 0x300);
 		u32 V = static_cast<u32>((D * X2) >> 16);
 		u32 W = static_cast<u32>((D * Y2) >> 16);
 		u32 S = (V * muls[0 ^ 1]) >> 16;
@@ -1171,7 +1170,7 @@ void F5INDI_TexrectGen()
 			const f32 dsdx = _FIXED2FLOAT((s16)dsdx_i, 10);
 			const f32 dtdy = _FIXED2FLOAT((s16)dtdy_i, 10);
 
-			gDP.primDepth.z = v.z / v.w;
+			gDP.primDepth.z = v.z / v.w * gSP.viewport.vscale[2] + gSP.viewport.vtrans[2];
 			gDP.primDepth.deltaZ = 0.0f;
 			DebugMsg(DEBUG_NORMAL, "SetPrimDepth( %f, %f );\n", gDP.primDepth.z, gDP.primDepth.deltaZ);
 
@@ -1289,7 +1288,7 @@ void F5Naboo_TexrectGen()
 
 	F5INDI_DoSubDList();
 
-	gDP.primDepth.z = v.z / v.w;
+	gDP.primDepth.z = v.z / v.w * gSP.viewport.vscale[2] + gSP.viewport.vtrans[2];
 	gDP.primDepth.deltaZ = 0.0f;
 
 	const u32 primColor = params[7];
@@ -2278,9 +2277,8 @@ void F5INDI_MoveWord(u32 _w0, u32 _w1)
 static
 void F5INDI_SetOtherMode(u32 w0, u32 w1)
 {
-	s32 AT = 0x80000000;
-	AT >>= _SHIFTR(w0, 0, 5);
-	u32 mask = u32(AT) >> _SHIFTR(w0, 8, 5);
+	u32 mask = (s32)0x80000000 >> _SHIFTR(w0, 0, 5);
+	mask >>= _SHIFTR(w0, 8, 5);
 
 	const u32 A0 = _SHIFTR(w0, 16, 3);
 	if (A0 == 0) {

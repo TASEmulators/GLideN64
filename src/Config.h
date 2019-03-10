@@ -5,10 +5,12 @@
 #include "Types.h"
 
 #define CONFIG_WITH_PROFILES 23U
-#define CONFIG_VERSION_CURRENT 24U
+#define CONFIG_VERSION_CURRENT 26U
 
 #define BILINEAR_3POINT   0
 #define BILINEAR_STANDARD 1
+#define BILINEAR_3POINT_WITH_COLOR_BLEEDING 2
+#define BILINEAR_STANDARD_WITH_COLOR_BLEEDING_AND_PREMULTIPLIED_ALPHA 3
 
 const u32 gc_uMegabyte = 1024U * 1024U;
 
@@ -33,6 +35,7 @@ struct Config
 		u32 maxAnisotropy;
 		f32 maxAnisotropyF;
 		u32 bilinearMode;
+		u32 enableHalosRemoval;
 		u32 screenShotFormat;
 	} texture;
 
@@ -48,8 +51,6 @@ struct Config
 		u32 enableHWLighting;
 		u32 enableCustomSettings;
 		u32 enableShadersStorage;
-		u32 correctTexrectCoords;
-		u32 enableNativeResTexrects;
 		u32 enableLegacyBlending;
 		u32 enableFragmentDepthWrite;
 		u32 enableBlitScreenWorkaround;
@@ -60,6 +61,17 @@ struct Config
 		f32 polygonOffsetUnits;
 #endif
 	} generalEmulation;
+
+	enum BGMode {
+		bgOnePiece = 0,
+		bgStripped = 1
+	};
+
+	struct {
+		u32 correctTexrectCoords;
+		u32 enableNativeResTexrects;
+		u32 bgMode;
+	} graphics2D;
 
 	enum Aspect {
 		aStretch = 0,
@@ -183,8 +195,7 @@ struct Config
 #define hack_Ogre64					(1<<0)  //Ogre Battle 64 background copy
 #define hack_noDepthFrameBuffers	(1<<1)  //Do not use depth buffers as texture
 #define hack_blurPauseScreen		(1<<2)  //Game copies frame buffer to depth buffer area, CPU blurs it. That image is used as background for pause screen.
-#define hack_scoreboard				(1<<3)  //Copy data from RDRAM to auxilary frame buffer. Scoreboard in Mario Tennis.
-#define hack_scoreboardJ			(1<<4)  //Copy data from RDRAM to auxilary frame buffer. Scoreboard in Mario Tennis (J).
+#define hack_clearAloneDepthBuffer	(1<<3)  //Force clear depth buffer if there is no frame buffer for it. Multiplayer in GE and PD.
 #define hack_texrect_shade_alpha	(1<<5)  //Set vertex alpha to 1 when texrect alpha combiner uses shade. Pokemon Stadium 2
 #define hack_subscreen				(1<<6)  //Fix subscreen delay in Zelda OOT and Doubutsu no Mori
 #define hack_blastCorps				(1<<7)  //Blast Corps black polygons

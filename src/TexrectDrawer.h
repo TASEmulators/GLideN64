@@ -17,7 +17,8 @@ public:
 
 	void init();
 	void destroy();
-	bool add();
+	bool addRect();
+	void addBackgroundRect();
 	bool draw();
 	bool isEmpty() const;
 	bool canContinue() const;
@@ -48,7 +49,7 @@ private:
 	std::vector<RectCoords> m_vecRectCoords;
 
 	struct iRect {
-		s32 ulx, uly, lrx, lry;
+		s32 ulx = 0, uly = 0, lrx = 0, lry = 0;
 	};
 	iRect _getiRect(u32 w0, u32 w1) const;
 	iRect m_curRect;

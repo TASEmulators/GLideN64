@@ -7,12 +7,18 @@
 #include "opengl_UnbufferedDrawer.h"
 #include "opengl_ColorBufferReaderWithPixelBuffer.h"
 #include "opengl_ColorBufferReaderWithBufferStorage.h"
+#ifdef OS_ANDROID
 #include "opengl_ColorBufferReaderWithEGLImage.h"
+#endif
 #include "opengl_ColorBufferReaderWithReadPixels.h"
 #include "opengl_Utils.h"
 #include "GLSL/glsl_CombinerProgramBuilder.h"
 #include "GLSL/glsl_SpecialShadersFactory.h"
 #include "GLSL/glsl_ShaderStorage.h"
+
+#ifdef OS_ANDROID
+#include <Graphics/OpenGLContext/GraphicBuffer/GraphicBufferWrapper.h>
+#endif
 
 using namespace opengl;
 
@@ -345,16 +351,16 @@ graphics::PixelReadBuffer * ContextImpl::createPixelReadBuffer(size_t _sizeInByt
 
 graphics::ColorBufferReader * ContextImpl::createColorBufferReader(CachedTexture * _pTexture)
 {
+#if defined(EGL) && defined(OS_ANDROID)
+	if (m_glInfo.eglImage)
+		return new ColorBufferReaderWithEGLImage(_pTexture, m_cachedFunctions->getCachedBindTexture());
+#endif
+
 	if (m_glInfo.bufferStorage && m_glInfo.renderer != Renderer::Intel)
 		return new ColorBufferReaderWithBufferStorage(_pTexture, m_cachedFunctions->getCachedBindBuffer());
 
 	if (!m_glInfo.isGLES2)
 		return new ColorBufferReaderWithPixelBuffer(_pTexture, m_cachedFunctions->getCachedBindBuffer());
-
-#if defined(EGL) && defined(OS_ANDROID)
-	if(config.frameBufferEmulation.copyToRDRAM > Config::ctSync)
-		return new ColorBufferReaderWithEGLImage(_pTexture, m_cachedFunctions->getCachedBindTexture());
-#endif
 
 	return new ColorBufferReaderWithReadPixels(_pTexture);
 }

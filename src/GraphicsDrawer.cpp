@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <string>
 #include <thread>
 #include <assert.h>
 #include <cmath>
@@ -31,6 +32,7 @@ GraphicsDrawer::GraphicsDrawer()
 , m_modifyVertices(0)
 , m_maxLineWidth(1.0f)
 , m_bFlatColors(false)
+, m_bBGMode(false)
 {
 	memset(m_rect, 0, sizeof(m_rect));
 }
@@ -678,7 +680,7 @@ void GraphicsDrawer::_updateStates(DrawingState _drawingState) const
 		// Current render target is depth buffer.
 		// Shader will set gl_FragDepth to shader color, see ShaderCombiner ctor
 		// Here we enable depth buffer write.
-		if (gDP.otherMode.depthCompare != 0) {
+		if (gDP.otherMode.cycleType <= G_CYC_2CYCLE && gDP.otherMode.depthCompare != 0) {
 			// Render to depth buffer with depth compare. Need to get copy of current depth buffer.
 			FrameBuffer * pCurBuf = frameBufferList().getCurrent();
 			if (pCurBuf != nullptr && pCurBuf->m_pDepthBuffer != nullptr) {
@@ -694,8 +696,7 @@ void GraphicsDrawer::_updateStates(DrawingState _drawingState) const
 				params.magFilter = textureParameters::FILTER_NEAREST;
 				gfxContext.setTextureParameters(params);
 			}
-		}
-		else if (frameBufferList().getCurrent() == nullptr) {
+		} else if (frameBufferList().getCurrent() == nullptr) {
 			gfxContext.enable(enable::BLEND, true);
 			gfxContext.setBlending(blend::ZERO, blend::ONE);
 		}
@@ -1040,7 +1041,7 @@ bool texturedRectDepthBufferCopy(const GraphicsDrawer::TexturedRectParams & _par
 		if (config.frameBufferEmulation.copyDepthToRDRAM == Config::cdCopyFromVRam) {
 			if (rectDepthBufferCopyFrame != dwnd().getBuffersSwapCount()) {
 				rectDepthBufferCopyFrame = dwnd().getBuffersSwapCount();
-				if (!FrameBuffer_CopyDepthBuffer(gDP.colorImage.address))
+				if (!FrameBuffer_CopyDepthBuffer(gDP.depthImageAddress))
 					return true;
 			}
 			RDP_RepeatLastLoadBlock();
@@ -1070,7 +1071,7 @@ bool texturedRectCopyToItself(const GraphicsDrawer::TexturedRectParams & _params
 static
 bool texturedRectBGCopy(const GraphicsDrawer::TexturedRectParams & _params)
 {
-	if (GBI.getMicrocodeType() != S2DEX)
+	if (gDP.colorImage.size > G_IM_SIZ_8b)
 		return false;
 
 	float flry = _params.lry;
@@ -1174,14 +1175,14 @@ void GraphicsDrawer::drawTexturedRect(const TexturedRectParams & _params)
 	DisplayWindow & wnd = dwnd();
 	TextureCache & cache = textureCache();
 	const bool bUseBilinear = gDP.otherMode.textureFilter != 0;
-	const bool bUseTexrectDrawer = config.generalEmulation.enableNativeResTexrects != 0
+	const bool bUseTexrectDrawer = m_bBGMode || ((config.graphics2D.enableNativeResTexrects != 0)
 		&& bUseBilinear
 		&& pCurrentCombiner->usesTexture()
 		&& (pCurrentBuffer == nullptr || !pCurrentBuffer->m_cfb)
 		&& (cache.current[0] != nullptr)
 		//		&& (cache.current[0] == nullptr || cache.current[0]->format == G_IM_FMT_RGBA || cache.current[0]->format == G_IM_FMT_CI)
 		&& ((cache.current[0]->frameBufferTexture == CachedTexture::fbNone && !cache.current[0]->bHDTexture))
-		&& (cache.current[1] == nullptr || (cache.current[1]->frameBufferTexture == CachedTexture::fbNone && !cache.current[1]->bHDTexture));
+		&& (cache.current[1] == nullptr || (cache.current[1]->frameBufferTexture == CachedTexture::fbNone && !cache.current[1]->bHDTexture)));
 
 	f32 scaleX, scaleY;
 	calcCoordsScales(pCurrentBuffer, scaleX, scaleY);
@@ -1356,8 +1357,14 @@ void GraphicsDrawer::drawTexturedRect(const TexturedRectParams & _params)
 			m_rect[i].x *= scale;
 	}
 
-	if (bUseTexrectDrawer && m_texrectDrawer.add())
-		return;
+	if (bUseTexrectDrawer) {
+		if (m_bBGMode) {
+			m_texrectDrawer.addBackgroundRect();
+			return;
+		}
+		if (m_texrectDrawer.addRect())
+			return;
+	}
 
 	_updateScreenCoordsViewport(_params.pBuffer);
 	Context::DrawRectParameters rectParams;
@@ -1383,7 +1390,7 @@ void GraphicsDrawer::drawTexturedRect(const TexturedRectParams & _params)
 
 void GraphicsDrawer::correctTexturedRectParams(TexturedRectParams & _params)
 {
-	if (config.generalEmulation.correctTexrectCoords == Config::tcSmart) {
+	if (config.graphics2D.correctTexrectCoords == Config::tcSmart) {
 		if (_params.ulx == m_texrectParams.ulx && _params.lrx == m_texrectParams.lrx) {
 			if (fabsf(_params.uly - m_texrectParams.lry) < 0.51f)
 				_params.uly = m_texrectParams.lry;
@@ -1397,7 +1404,7 @@ void GraphicsDrawer::correctTexturedRectParams(TexturedRectParams & _params)
 				_params.lrx = m_texrectParams.ulx;
 		}
 	}
-	else if (config.generalEmulation.correctTexrectCoords == Config::tcForce) {
+	else if (config.graphics2D.correctTexrectCoords == Config::tcForce) {
 		_params.lrx += 0.25f;
 		_params.lry += 0.25f;
 	}
@@ -1737,17 +1744,19 @@ void GraphicsDrawer::_initStates()
 
 void GraphicsDrawer::_setSpecialTexrect() const
 {
-	const char * name = RSP.romname;
-	if (strstr(name, (const char *)"Beetle") || strstr(name, (const char *)"BEETLE") || strstr(name, (const char *)"HSV")
-		|| strstr(name, (const char *)"DUCK DODGERS") || strstr(name, (const char *)"DAFFY DUCK"))
+	std::string name(RSP.romname);
+	std::transform(name.begin(), name.end(), name.begin(), ::toupper);
+#define FOUND(romname) name.find(romname) != std::string::npos
+
+	if (FOUND("BEETLE") || FOUND("HSV") || FOUND("DUCK DODGERS") || FOUND("DAFFY DUCK"))
 		texturedRectSpecial = texturedRectShadowMap;
-	else if (strstr(name, (const char *)"Perfect Dark") || strstr(name, (const char *)"PERFECT DARK"))
+	else if (FOUND("PERFECT DARK") || FOUND("TUROK_DINOSAUR_HUNTE"))
 		texturedRectSpecial = texturedRectDepthBufferCopy; // See comments to that function!
-	else if (strstr(name, (const char *)"CONKER BFD"))
+	else if (FOUND("CONKER BFD"))
 		texturedRectSpecial = texturedRectCopyToItself;
-	else if (strstr(name, (const char *)"YOSHI STORY"))
+	else if (FOUND("YOSHI STORY"))
 		texturedRectSpecial = texturedRectBGCopy;
-	else if (strstr(name, (const char *)"PAPER MARIO") || strstr(name, (const char *)"MARIO STORY"))
+	else if (FOUND("PAPER MARIO") || FOUND("MARIO STORY"))
 		texturedRectSpecial = texturedRectPaletteMod;
 	else
 		texturedRectSpecial = nullptr;

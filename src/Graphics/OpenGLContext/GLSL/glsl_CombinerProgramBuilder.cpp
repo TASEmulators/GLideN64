@@ -1009,12 +1009,13 @@ public:
 
 			if (g_textureConvert.useTextureFiltering()) {
 				shaderPart += "uniform lowp int uTextureFilterMode;								\n";
-				if (config.texture.bilinearMode == BILINEAR_3POINT) {
+				switch (config.texture.bilinearMode + config.texture.enableHalosRemoval * 2) {
+				case BILINEAR_3POINT:
 					// 3 point texture filtering.
 					// Original author: ArthurCarvalho
 					// GLSL implementation: twinaphex, mupen64plus-libretro project.
 					shaderPart +=
-						"#define TEX_OFFSET(off, tex, texCoord) texture(tex, texCoord - (off)/texSize)									\n"
+						"#define TEX_OFFSET(off, tex, texCoord) texture(tex, texCoord - (off)/texSize)			\n"
 						"#define TEX_FILTER(name, tex, texCoord)												\\\n"
 						"{																						\\\n"
 						"  mediump vec2 texSize = vec2(textureSize(tex,0));										\\\n"
@@ -1034,7 +1035,8 @@ public:
 						"  else name = c0 + abs(offset.x)*(c1-c0) + abs(offset.y)*(c2-c0); 						\\\n"
 						"}																						\n"
 						;
-				} else {
+				break;
+				case BILINEAR_STANDARD:
 					shaderPart +=
 						"#define TEX_OFFSET(off, tex, texCoord) texture(tex, texCoord - (off)/texSize)									\n"
 						"#define TEX_FILTER(name, tex, texCoord)																		\\\n"
@@ -1070,6 +1072,85 @@ public:
 						"  }																											\\\n"
 						"}																												\n"
 						;
+				break;
+				case BILINEAR_3POINT_WITH_COLOR_BLEEDING:
+					// 3 point texture filtering.
+					// Original author: ArthurCarvalho
+					// GLSL implementation: twinaphex, mupen64plus-libretro project.
+					shaderPart +=
+						"#define TEX_OFFSET(off, tex, texCoord) texture(tex, texCoord - (off)/texSize)									\n"
+						"#define TEX_FILTER(name, tex, texCoord)												\\\n"
+						"{																						\\\n"
+						"  mediump vec2 texSize = vec2(textureSize(tex,0));										\\\n"
+						"  mediump vec2 offset = fract(texCoord*texSize - vec2(0.5));							\\\n"
+						"  offset -= step(1.0, offset.x + offset.y);											\\\n"
+						"  lowp vec4 c0 = TEX_OFFSET(offset, tex, texCoord);									\\\n"
+						"  lowp vec4 c1 = TEX_OFFSET(vec2(offset.x - sign(offset.x), offset.y), tex, texCoord);	\\\n"
+						"  lowp vec4 c2 = TEX_OFFSET(vec2(offset.x, offset.y - sign(offset.y)), tex, texCoord);	\\\n"
+						"																						\\\n"
+						"  if(uEnableAlphaTest == 1 ){															\\\n" // Calculate premultiplied color values
+						"    c0.rgb *= c0.a;																	\\\n"
+						"    c1.rgb *= c1.a;																	\\\n"
+						"    c2.rgb *= c2.a;																	\\\n"
+						"    name = c0 + abs(offset.x)*(c1-c0) + abs(offset.y)*(c2-c0); 						\\\n"
+						"    name.rgb /= name.a;																\\\n" // Divide alpha to get actual color value
+						"  }																					\\\n"
+						"  else name = c0 + abs(offset.x)*(c1-c0) + abs(offset.y)*(c2-c0); 						\\\n"
+						"}																						\n"
+						;
+				break;
+				case BILINEAR_STANDARD_WITH_COLOR_BLEEDING_AND_PREMULTIPLIED_ALPHA:
+					shaderPart +=
+						"#define TEX_OFFSET(off, tex, texCoord) texture(tex, texCoord - (off)/texSize)									\n"
+						"#define TEX_FILTER(name, tex, texCoord)																		\\\n"
+						"{																												\\\n"
+						"  mediump vec2 texSize = vec2(textureSize(tex,0));																\\\n"
+						"  mediump vec2 offset = fract(texCoord*texSize - vec2(0.5));													\\\n"
+						"  offset -= step(1.0, offset.x + offset.y);																	\\\n"
+						"  lowp vec4 zero = vec4(0.0);																					\\\n"
+						"																												\\\n"
+						"  lowp vec4 p0q0 = TEX_OFFSET(offset, tex, texCoord);															\\\n"
+						"  lowp vec4 p1q0 = TEX_OFFSET(vec2(offset.x - sign(offset.x), offset.y), tex, texCoord);						\\\n"
+						"																												\\\n"
+						"  lowp vec4 p0q1 = TEX_OFFSET(vec2(offset.x, offset.y - sign(offset.y)), tex, texCoord);						\\\n"
+						"  lowp vec4 p1q1 = TEX_OFFSET(vec2(offset.x - sign(offset.x), offset.y - sign(offset.y)), tex, texCoord);		\\\n"
+						"																												\\\n"
+						"  if(uEnableAlphaTest == 1){																					\\\n" // Calculate premultiplied color values
+						"    p0q0.rgb *= p0q0.a;																						\\\n"
+						"    p1q0.rgb *= p1q0.a;																						\\\n"
+						"    p0q1.rgb *= p0q1.a;																						\\\n"
+						"    p1q1.rgb *= p1q1.a;																						\\\n"
+						"																												\\\n"
+						"    mediump vec2 interpolationFactor = abs(offset);															\\\n"
+						"    lowp vec4 pInterp_q0 = mix( p0q0, p1q0, interpolationFactor.x ); 											\\\n" // Interpolates top row in X direction.
+						"    lowp vec4 pInterp_q1 = mix( p0q1, p1q1, interpolationFactor.x ); 											\\\n" // Interpolates bottom row in X direction.
+						"    name = mix( pInterp_q0, pInterp_q1, interpolationFactor.y ); 												\\\n" // Interpolate in Y direction.
+						"    name.rgb /= name.a;																						\\\n" // Divide alpha to get actual color value
+						"  }																											\\\n"
+						"  else if(uCvgXAlpha == 1){																					\\\n" // Use texture bleeding for mk64
+						"    if(p0q0.a > p1q0.a) p1q0.rgb = p0q0.rgb;																	\\\n"
+						"    if(p1q0.a > p0q0.a) p0q0.rgb = p1q0.rgb;																	\\\n"
+						"    if(p0q1.a > p1q1.a) p1q1.rgb = p0q1.rgb;																	\\\n"
+						"    if(p1q1.a > p0q1.a) p0q1.rgb = p1q1.rgb;																	\\\n"
+						"    if(p0q0.a > p0q1.a) p0q1.rgb = p0q0.rgb;																	\\\n"
+						"    if(p0q1.a > p0q0.a) p0q0.rgb = p0q1.rgb;																	\\\n"
+						"    if(p1q0.a > p1q1.a) p1q1.rgb = p1q0.rgb;																	\\\n"
+						"    if(p1q1.a > p1q0.a) p1q0.rgb = p1q1.rgb;																	\\\n"
+						"																												\\\n"
+						"    mediump vec2 interpolationFactor = abs(offset);															\\\n"
+						"    lowp vec4 pInterp_q0 = mix( p0q0, p1q0, interpolationFactor.x );											\\\n" // Interpolates top row in X direction.
+						"    lowp vec4 pInterp_q1 = mix( p0q1, p1q1, interpolationFactor.x );											\\\n" // Interpolates bottom row in X direction.
+						"    name = mix( pInterp_q0, pInterp_q1, interpolationFactor.y );												\\\n"
+						"  }																											\\\n"
+						"  else{																										\\\n"
+						"    mediump vec2 interpolationFactor = abs(offset);															\\\n"
+						"    lowp vec4 pInterp_q0 = mix( p0q0, p1q0, interpolationFactor.x ); 											\\\n" // Interpolates top row in X direction.
+						"    lowp vec4 pInterp_q1 = mix( p0q1, p1q1, interpolationFactor.x ); 											\\\n" // Interpolates bottom row in X direction.
+						"    name = mix( pInterp_q0, pInterp_q1, interpolationFactor.y ); 												\\\n" // Interpolate in Y direction.
+						"  }																											\\\n"
+						"}																												\n"
+						;
+				break;
 				}
 				shaderPart +=
 					"#define READ_TEX(name, tex, texCoord, fbMonochrome, fbFixedAlpha)	\\\n"
@@ -1676,67 +1757,101 @@ public:
 					"}														\n"
 				;
 			} else {
-				m_part =
+				if (config.texture.bilinearMode == BILINEAR_3POINT)
+					m_part =
+					"#define TEX_OFFSET_NORMAL(off, tex, texCoord, lod) texture(tex, texCoord - (off)/texSize)			\n"
+					"#define TEX_OFFSET_MIPMAP(off, tex, texCoord, lod) textureLod(tex, texCoord - (off)/texSize, lod)	\n"
+					"#define READ_TEX_NORMAL(name, tex, texCoord, lod)											\\\n"
+					"  {																								\\\n"
+					"  mediump vec2 texSize = vec2(textureSize(tex, int(lod)));											\\\n"
+					"  mediump vec2 offset = fract(texCoord*texSize - vec2(0.5));										\\\n"
+					"  offset -= step(1.0, offset.x + offset.y);														\\\n"
+					"  lowp vec4 c0 = TEX_OFFSET_NORMAL(offset, tex, texCoord, lod);									\\\n"
+					"  lowp vec4 c1 = TEX_OFFSET_NORMAL(vec2(offset.x - sign(offset.x), offset.y), tex, texCoord, lod);	\\\n"
+					"  lowp vec4 c2 = TEX_OFFSET_NORMAL(vec2(offset.x, offset.y - sign(offset.y)), tex, texCoord, lod);	\\\n"
+					"  name = c0 + abs(offset.x)*(c1-c0) + abs(offset.y)*(c2-c0); 										\\\n"
+					"  }																								\n"
+					"#define READ_TEX_MIPMAP(name, tex, texCoord, lod)													\\\n"
+					"  {																								\\\n"
+					"  mediump vec2 texSize = vec2(textureSize(tex, int(lod)));											\\\n"
+					"  mediump vec2 offset = fract(texCoord*texSize - vec2(0.5));										\\\n"
+					"  offset -= step(1.0, offset.x + offset.y);														\\\n"
+					"  lowp vec4 c0 = TEX_OFFSET_MIPMAP(offset, tex, texCoord, lod);									\\\n"
+					"  lowp vec4 c1 = TEX_OFFSET_MIPMAP(vec2(offset.x - sign(offset.x), offset.y), tex, texCoord, lod);	\\\n"
+					"  lowp vec4 c2 = TEX_OFFSET_MIPMAP(vec2(offset.x, offset.y - sign(offset.y)), tex, texCoord, lod);	\\\n"
+					"  name = c0 + abs(offset.x)*(c1-c0) + abs(offset.y)*(c2-c0); 										\\\n"
+					"  }																								\n"
+					;
+				else
+					m_part =
+					"#define TEX_FETCH_NORMAL(tex, texCoord, lod) texture(tex, texCoord)									\n"
+					"#define TEX_FETCH_MIPMAP(tex, texCoord, lod) textureLod(tex, texCoord, lod)							\n"
+					"#define READ_TEX_NORMAL(name, tex, texCoord, lod) name = TEX_FETCH_NORMAL(tex, texCoord, lod)	\n"
+					"#define READ_TEX_MIPMAP(name, tex, texCoord, lod) name = TEX_FETCH_MIPMAP(tex, texCoord, lod)	\n"
+					;
+				m_part +=
 					"uniform lowp int uEnableLod;		\n"
 					"uniform mediump float uMinLod;		\n"
 					"uniform lowp int uMaxTile;			\n"
 					"uniform lowp int uTextureDetail;	\n"
-					"														\n"
+					"																		\n"
 					"mediump float mipmap(out lowp vec4 readtex0, out lowp vec4 readtex1) {	\n"
-					"  readtex0 = texture(uTex0, vTexCoord0);				\n"
-					"  readtex1 = textureLod(uTex1, vTexCoord1, 0.0);		\n"
-					"														\n"
-					"  mediump float fMaxTile = float(uMaxTile);			\n"
-					"  mediump vec2 dx = abs(dFdx(vLodTexCoord));			\n"
-					"  dx *= uScreenScale;									\n"
-					"  mediump float lod = max(dx.x, dx.y);					\n"
-					"  bool magnify = lod < 1.0;							\n"
-					"  mediump float lod_tile = magnify ? 0.0 : floor(log2(floor(lod))); \n"
-					"  bool distant = lod > 128.0 || lod_tile >= fMaxTile;	\n"
-					"  mediump float lod_frac = fract(lod/pow(2.0, lod_tile));	\n"
-					"  if (magnify) lod_frac = max(lod_frac, uMinLod);		\n"
-					"  if (uTextureDetail == 0)	{							\n"
-					"    if (distant) lod_frac = 1.0;						\n"
-					"    else if (magnify) lod_frac = 0.0;					\n"
-					"  }													\n"
-					"  if (magnify && ((uTextureDetail & 1) != 0))			\n"
-					"      lod_frac = 1.0 - lod_frac;						\n"
-					"  if (uMaxTile == 0) {									\n"
-					"    if (uEnableLod != 0) {								\n"
-					"      if ((uTextureDetail & 2) == 0) readtex1 = readtex0;	\n"
-					"      else if (!magnify) readtex0 = readtex1;			\n"
-					"    }													\n"
-					"    return lod_frac;									\n"
-					"  }													\n"
-					"  if (uEnableLod == 0) return lod_frac;				\n"
-					"														\n"
-					"  lod_tile = min(lod_tile, fMaxTile);					\n"
-					"  lowp float lod_tile_m1 = max(0.0, lod_tile - 1.0);	\n"
-					"  lowp vec4 lodT = textureLod(uTex1, vTexCoord1, lod_tile);	\n"
-					"  lowp vec4 lodT_m1 = textureLod(uTex1, vTexCoord1, lod_tile_m1);	\n"
-					"  lowp vec4 lodT_p1 = textureLod(uTex1, vTexCoord1, lod_tile + 1.0);	\n"
-					"  if (lod_tile < 1.0) {								\n"
-					"    if (magnify) {									\n"
+					"  READ_TEX_NORMAL(readtex0, uTex0, vTexCoord0, 0.0);					\n"
+					"  READ_TEX_MIPMAP(readtex1, uTex1, vTexCoord1, 0.0);					\n"
+					"																		\n"
+					"  mediump float fMaxTile = float(uMaxTile);							\n"
+					"  mediump vec2 dx = abs(dFdx(vLodTexCoord));							\n"
+					"  dx *= uScreenScale;													\n"
+					"  mediump float lod = max(dx.x, dx.y);									\n"
+					"  bool magnify = lod < 1.0;											\n"
+					"  mediump float lod_tile = magnify ? 0.0 : floor(log2(floor(lod)));	\n"
+					"  bool distant = lod > 128.0 || lod_tile >= fMaxTile;					\n"
+					"  mediump float lod_frac = fract(lod/pow(2.0, lod_tile));				\n"
+					"  if (magnify) lod_frac = max(lod_frac, uMinLod);						\n"
+					"  if (uTextureDetail == 0)	{											\n"
+					"    if (distant) lod_frac = 1.0;										\n"
+					"    else if (magnify) lod_frac = 0.0;									\n"
+					"  }																	\n"
+					"  if (magnify && ((uTextureDetail & 1) != 0))							\n"
+					"      lod_frac = 1.0 - lod_frac;										\n"
+					"  if (uMaxTile == 0) {													\n"
+					"    if (uEnableLod != 0) {												\n"
+					"      if ((uTextureDetail & 2) == 0) readtex1 = readtex0;				\n"
+					"      else if (!magnify) readtex0 = readtex1;							\n"
+					"    }																	\n"
+					"    return lod_frac;													\n"
+					"  }																	\n"
+					"  if (uEnableLod == 0) return lod_frac;								\n"
+					"																		\n"
+					"  lod_tile = min(lod_tile, fMaxTile - 1.0);							\n"
+					"  lowp float lod_tile_m1 = max(0.0, lod_tile - 1.0);					\n"
+					"  lowp float lod_tile_p1 = min(fMaxTile - 1.0, lod_tile + 1.0);		\n"
+					"  lowp vec4 lodT, lodT_m1, lodT_p1;									\n"
+					"  READ_TEX_MIPMAP(lodT, uTex1, vTexCoord1, lod_tile);					\n"
+					"  READ_TEX_MIPMAP(lodT_m1, uTex1, vTexCoord1, lod_tile_m1);			\n"
+					"  READ_TEX_MIPMAP(lodT_p1, uTex1, vTexCoord1, lod_tile_p1);			\n"
+					"  if (lod_tile < 1.0) {												\n"
+					"    if (magnify) {														\n"
 					//     !sharpen && !detail
-					"      if (uTextureDetail == 0) readtex1 = readtex0;	\n"
-					"    } else {											\n"
+					"      if (uTextureDetail == 0) readtex1 = readtex0;					\n"
+					"    } else {															\n"
 					//     detail
-					"      if ((uTextureDetail & 2) != 0 ) {				\n"
-					"        readtex0 = lodT;								\n"
-					"        readtex1 = lodT_p1;							\n"
-					"      }												\n"
-					"    }													\n"
-					"  } else {												\n"
-					"    if ((uTextureDetail & 2) != 0 ) {							\n"
-					"      readtex0 = lodT;									\n"
-					"      readtex1 = lodT_p1;								\n"
-					"    } else {											\n"
-					"      readtex0 = lodT_m1;								\n"
-					"      readtex1 = lodT;									\n"
-					"    }													\n"
-					"  }													\n"
-					"  return lod_frac;										\n"
-					"}														\n"
+					"      if ((uTextureDetail & 2) != 0 ) {								\n"
+					"        readtex0 = lodT;												\n"
+					"        readtex1 = lodT_p1;											\n"
+					"      }																\n"
+					"    }																	\n"
+					"  } else {																\n"
+					"    if ((uTextureDetail & 2) != 0 ) {									\n"
+					"      readtex0 = lodT;													\n"
+					"      readtex1 = lodT_p1;												\n"
+					"    } else {															\n"
+					"      readtex0 = lodT_m1;												\n"
+					"      readtex1 = lodT;													\n"
+					"    }																	\n"
+					"  }																	\n"
+					"  return lod_frac;														\n"
+					"}																		\n"
 				;
 			}
 		}

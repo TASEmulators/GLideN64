@@ -1114,12 +1114,12 @@ bool FrameBufferList::RdpUpdate::update(RdpUpdateResult & _result)
 
 	s32 vactivelines = v_sync - (ispal ? 44 : 34);
 	if (vactivelines > PRESCALE_HEIGHT) {
-		LOG(LOG_MINIMAL, "VI_V_SYNC_REG too big\n");
+		LOG(LOG_VERBOSE, "VI_V_SYNC_REG too big\n");
 		return false;
 	}
 
 	if (vactivelines < 0) {
-		LOG(LOG_MINIMAL, "vactivelines lesser than 0\n");
+		LOG(LOG_VERBOSE, "vactivelines lesser than 0\n");
 		return false;
 	}
 
@@ -1377,8 +1377,8 @@ void FrameBufferList::renderBuffer()
 		XoffsetLeft = addrOffset % rdpRes.vi_width;
 	}
 
-	if (!rdpRes.vi_lowerfield && rdpRes.vi_width > 320) {
-		if (srcY0 > 0)
+	if (!rdpRes.vi_lowerfield) {
+		if (srcY0 > 0 && (pBuffer->m_width > 320 || pBuffer->m_height > 240))
 			--srcY0;
 		if (dstY0 > 0)
 			--dstY0;
