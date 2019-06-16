@@ -130,10 +130,11 @@ f32 identityMatrix[4][4] =
 void gSPLoadUcodeEx( u32 uc_start, u32 uc_dstart, u16 uc_dsize )
 {
 	gSP.matrix.modelViewi = 0;
-	gSP.changed |= CHANGED_MATRIX | CHANGED_LIGHT | CHANGED_LOOKAT;
 	gSP.status[0] = gSP.status[1] = gSP.status[2] = gSP.status[3] = 0;
 	gSP.fog.multiplier = gSP.fog.offset = 0;
 	gSP.fog.multiplierf = gSP.fog.offsetf = 0.0f;
+	gSP.geometryMode = 0U;
+	gSP.changed |= CHANGED_MATRIX | CHANGED_LIGHT | CHANGED_LOOKAT | CHANGED_GEOMETRYMODE;
 
 	if ((((uc_start & 0x1FFFFFFF) + 4096) > RDRAMSize) || (((uc_dstart & 0x1FFFFFFF) + uc_dsize) > RDRAMSize)) {
 		DebugMsg(DEBUG_NORMAL|DEBUG_ERROR, "gSPLoadUcodeEx out of RDRAM\n");
@@ -1600,22 +1601,35 @@ void gSPInsertMatrix( u32 where, u32 num )
 {
 	DebugMsg(DEBUG_NORMAL, "gSPInsertMatrix(%u, %u);\n", where, num);
 
-	if ((where & 0x3) || (where > 0x3C))
+	if ((where & 0x3) != 0)
+		return;
+
+	f32 * pMtx = nullptr;
+	u16 addr = (where + 0x80) & 0xFFFF;
+	if (addr < 0x40) {
+		pMtx = reinterpret_cast<f32*>(gSP.matrix.modelView[gSP.matrix.modelViewi]);
+	} else if (addr < 0x80) {
+		pMtx = reinterpret_cast<f32*>(gSP.matrix.projection);
+		addr -= 0x40;
+	} else if (addr < 0xC0) {
+		pMtx = reinterpret_cast<f32*>(gSP.matrix.combined);
+		addr -= 0x80;
+	} else
 		return;
 
 	const u16 * pData = reinterpret_cast<u16*>(&num);
-	const u32 index = (where < 0x20) ? (where >> 1) : ((where - 0x20) >> 1);
+	const u32 index = (addr < 0x20) ? (addr >> 1) : ((addr - 0x20) >> 1);
 	for (u32 i = 0; i < 2; i++) {
-		if (where < 0x20) {
+		if (addr < 0x20) {
 			// integer elements of the matrix to be changed
 			const s16 integer = static_cast<s16>(pData[i ^ 1]);
-			const u16 fract = GetIntMatrixElement(gSP.matrix.combined[0][index + i]).second;
-			gSP.matrix.combined[0][index + i] = GetFloatMatrixElement(integer, fract);
+			const u16 fract = GetIntMatrixElement(pMtx[index + i]).second;
+			pMtx[index + i] = GetFloatMatrixElement(integer, fract);
 		} else {
 			// fractional elements of the matrix to be changed
-			const s16 integer = GetIntMatrixElement(gSP.matrix.combined[0][index + i]).first;
+			const s16 integer = GetIntMatrixElement(pMtx[index + i]).first;
 			const u16 fract = pData[i ^ 1];
-			gSP.matrix.combined[0][index + i] = GetFloatMatrixElement(integer, fract);
+			pMtx[index + i] = GetFloatMatrixElement(integer, fract);
 		}
 	}
 }
