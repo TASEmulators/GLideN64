@@ -5,7 +5,7 @@
 #include "Types.h"
 
 #define CONFIG_WITH_PROFILES 23U
-#define CONFIG_VERSION_CURRENT 26U
+#define CONFIG_VERSION_CURRENT 27U
 
 #define BILINEAR_3POINT   0
 #define BILINEAR_STANDARD 1
@@ -28,6 +28,7 @@ struct Config
 		u32 fxaa;
 		u32 multisampling;
 		u32 verticalSync;
+		u32 threadedVideo;
 	} video;
 
 	struct
@@ -65,6 +66,12 @@ struct Config
 	enum BGMode {
 		bgOnePiece = 0,
 		bgStripped = 1
+	};
+
+	enum NativeResTexrectsMode {
+		ntDisable = 0,
+		ntOptimized,
+		ntUnptimized
 	};
 
 	struct {
@@ -119,6 +126,9 @@ struct Config
 		u32 fbInfoReadColorChunk;
 		u32 fbInfoReadDepthChunk;
 
+		// Depth buffer copy. For Reshade.
+		u32 copyDepthToMainDepthBuffer;
+
 		// Overscan
 		u32 enableOverscan;
 		struct {
@@ -145,6 +155,9 @@ struct Config
 		u32 txForce16bpp;				// Force use 16bit color textures
 		u32 txCacheCompression;			// Zip textures cache
 		u32 txSaveCache;				// Save texture cache to hard disk
+
+		u32 txEnhancedTextureFileStorage;	// Use file storage instead of memory cache for enhanced textures.
+		u32 txHiresTextureFileStorage;		// Use file storage instead of memory cache for hires textures.
 
 		wchar_t txPath[PLUGIN_PATH_SIZE]; // Path to texture packs
 		wchar_t txCachePath[PLUGIN_PATH_SIZE]; // Path to store texture cache, that is .htc files

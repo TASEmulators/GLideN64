@@ -3,6 +3,7 @@
 #include <Graphics/Context.h>
 #include <Graphics/OpenGLContext/GLFunctions.h>
 #include <Graphics/OpenGLContext/opengl_Utils.h>
+#include <Graphics/OpenGLContext/ThreadedOpenGl/opengl_Wrapper.h>
 #include <mupenplus/GLideN64_mupenplus.h>
 #include <GLideN64.h>
 #include <Config.h>
@@ -17,6 +18,8 @@
 #ifdef VC
 #include <bcm_host.h>
 #endif
+
+using namespace opengl;
 
 class DisplayWindowMupen64plus : public DisplayWindow
 {
@@ -47,32 +50,39 @@ DisplayWindow & DisplayWindow::get()
 
 void DisplayWindowMupen64plus::_setAttributes()
 {
-	LOG(LOG_VERBOSE, "[gles2GlideN64]: _setAttributes\n");
+	LOG(LOG_VERBOSE, "_setAttributes");
 
-	CoreVideo_GL_SetAttribute(M64P_GL_CONTEXT_PROFILE_MASK, M64P_GL_CONTEXT_PROFILE_CORE);
-	CoreVideo_GL_SetAttribute(M64P_GL_CONTEXT_MAJOR_VERSION, 3);
-	CoreVideo_GL_SetAttribute(M64P_GL_CONTEXT_MINOR_VERSION, 3);
+	FunctionWrapper::CoreVideo_GL_SetAttribute(M64P_GL_CONTEXT_PROFILE_MASK, M64P_GL_CONTEXT_PROFILE_CORE);
+	FunctionWrapper::CoreVideo_GL_SetAttribute(M64P_GL_CONTEXT_MAJOR_VERSION, 3);
+	FunctionWrapper::CoreVideo_GL_SetAttribute(M64P_GL_CONTEXT_MINOR_VERSION, 3);
 
-	CoreVideo_GL_SetAttribute(M64P_GL_DOUBLEBUFFER, 1);
-	CoreVideo_GL_SetAttribute(M64P_GL_SWAP_CONTROL, config.video.verticalSync);
-	CoreVideo_GL_SetAttribute(M64P_GL_BUFFER_SIZE, 32);
-	CoreVideo_GL_SetAttribute(M64P_GL_DEPTH_SIZE, 16);
+	FunctionWrapper::CoreVideo_GL_SetAttribute(M64P_GL_DOUBLEBUFFER, 1);
+	FunctionWrapper::CoreVideo_GL_SetAttribute(M64P_GL_SWAP_CONTROL, config.video.verticalSync);
+	FunctionWrapper::CoreVideo_GL_SetAttribute(M64P_GL_BUFFER_SIZE, 32);
+	FunctionWrapper::CoreVideo_GL_SetAttribute(M64P_GL_DEPTH_SIZE, 16);
 	if (config.video.multisampling > 0 && config.frameBufferEmulation.enable == 0) {
-		CoreVideo_GL_SetAttribute(M64P_GL_MULTISAMPLEBUFFERS, 1);
+		FunctionWrapper::CoreVideo_GL_SetAttribute(M64P_GL_MULTISAMPLEBUFFERS, 1);
 		if (config.video.multisampling <= 2)
-			CoreVideo_GL_SetAttribute(M64P_GL_MULTISAMPLESAMPLES, 2);
+			FunctionWrapper::CoreVideo_GL_SetAttribute(M64P_GL_MULTISAMPLESAMPLES, 2);
 		else if (config.video.multisampling <= 4)
-			CoreVideo_GL_SetAttribute(M64P_GL_MULTISAMPLESAMPLES, 4);
+			FunctionWrapper::CoreVideo_GL_SetAttribute(M64P_GL_MULTISAMPLESAMPLES, 4);
 		else if (config.video.multisampling <= 8)
-			CoreVideo_GL_SetAttribute(M64P_GL_MULTISAMPLESAMPLES, 8);
+			FunctionWrapper::CoreVideo_GL_SetAttribute(M64P_GL_MULTISAMPLESAMPLES, 8);
 		else
-			CoreVideo_GL_SetAttribute(M64P_GL_MULTISAMPLESAMPLES, 16);
+			FunctionWrapper::CoreVideo_GL_SetAttribute(M64P_GL_MULTISAMPLESAMPLES, 16);
 	}
 }
 
 bool DisplayWindowMupen64plus::_start()
 {
-	CoreVideo_Init();
+	FunctionWrapper::setThreadedMode(config.video.threadedVideo);
+	auto returnValue = FunctionWrapper::CoreVideo_Init();
+	if (returnValue != M64ERR_SUCCESS) {
+		LOG(LOG_ERROR, "Error in CoreVideo_Init. Error code: %d", returnValue);
+		FunctionWrapper::CoreVideo_Quit();
+		return false;
+	}
+
 	_setAttributes();
 
 	m_bFullscreen = config.video.fullscreen > 0;
@@ -81,15 +91,14 @@ bool DisplayWindowMupen64plus::_start()
 	_getDisplaySize();
 	_setBufferSize();
 
-	printf("(II) Setting video mode %dx%d...\n", m_screenWidth, m_screenHeight);
+	LOG(LOG_VERBOSE, "Setting video mode %dx%d", m_screenWidth, m_screenHeight);
 	const m64p_video_flags flags = M64VIDEOFLAG_SUPPORT_RESIZING;
-	if (CoreVideo_SetVideoMode(m_screenWidth, m_screenHeight, 0, m_bFullscreen ? M64VIDEO_FULLSCREEN : M64VIDEO_WINDOWED, flags) != M64ERR_SUCCESS) {
-		//printf("(EE) Error setting videomode %dx%d\n", m_screenWidth, m_screenHeight);
-		LOG(LOG_ERROR, "[gles2GlideN64]: Error setting videomode %dx%d\n", m_screenWidth, m_screenHeight);
-		CoreVideo_Quit();
+	returnValue = FunctionWrapper::CoreVideo_SetVideoMode(m_screenWidth, m_screenHeight, 0, m_bFullscreen ? M64VIDEO_FULLSCREEN : M64VIDEO_WINDOWED, flags);
+	if (returnValue != M64ERR_SUCCESS) {
+		LOG(LOG_ERROR, "Error setting videomode %dx%d. Error code: %d", m_screenWidth, m_screenHeight, returnValue);
+		FunctionWrapper::CoreVideo_Quit();
 		return false;
 	}
-	LOG(LOG_VERBOSE, "[gles2GlideN64]: Create setting videomode %dx%d\n", m_screenWidth, m_screenHeight);
 
 	char caption[128];
 # ifdef _DEBUG
@@ -104,7 +113,7 @@ bool DisplayWindowMupen64plus::_start()
 
 void DisplayWindowMupen64plus::_stop()
 {
-	CoreVideo_Quit();
+	FunctionWrapper::CoreVideo_Quit();
 }
 
 void DisplayWindowMupen64plus::_swapBuffers()
@@ -119,7 +128,11 @@ void DisplayWindowMupen64plus::_swapBuffers()
 		gDP.changed |= CHANGED_COMBINE;
 		(*renderCallback)((gDP.changed&CHANGED_CPU_FB_WRITE) == 0 ? 1 : 0);
 	}
-	CoreVideo_GL_SwapBuffers();
+
+	//Don't let the command queue grow too big buy waiting on no more swap buffers being queued
+	FunctionWrapper::WaitForSwapBuffersQueued();
+
+	FunctionWrapper::CoreVideo_GL_SwapBuffers();
 }
 
 void DisplayWindowMupen64plus::_saveScreenshot()
@@ -140,17 +153,17 @@ bool DisplayWindowMupen64plus::_resizeWindow()
 	switch (CoreVideo_ResizeWindow(m_screenWidth, m_screenHeight)) 
 	{
 		case M64ERR_INVALID_STATE: 
-			printf("(EE) Error setting videomode %dx%d in fullscreen mode\n", m_screenWidth, m_screenHeight);
+			LOG(LOG_ERROR, "Error setting videomode %dx%d in fullscreen mode", m_screenWidth, m_screenHeight);
 			m_width = m_screenWidth = config.video.windowedWidth;
 			m_height = m_screenHeight = config.video.windowedHeight;
 			break;
 		case M64ERR_SUCCESS:
 			break;
 		default:
-			printf("(EE) Error setting videomode %dx%d\n", m_screenWidth, m_screenHeight);
+			LOG(LOG_ERROR, "Error setting videomode %dx%d", m_screenWidth, m_screenHeight);
 			m_width = m_screenWidth = config.video.windowedWidth;
 			m_height = m_screenHeight = config.video.windowedHeight;
-			CoreVideo_Quit();
+			FunctionWrapper::CoreVideo_Quit();
 			return false;
 	}
 	_setBufferSize();
@@ -170,9 +183,11 @@ void DisplayWindowMupen64plus::_getDisplaySize()
 		// Use VC get_display_size function to get the current screen resolution
 		u32 fb_width;
 		u32 fb_height;
-		if (graphics_get_display_size(0 /* LCD */, &fb_width, &fb_height) < 0)
-			printf("ERROR: Failed to get display size\n");
+		auto returnValue = graphics_get_display_size(0 /* LCD */, &fb_width, &fb_height);
+		if (returnValue < 0)
+			LOG(LOG_ERROR, "Failed to get display size. Error code: %d", returnValue);
 		else {
+			LOG(LOG_VERBOSE, "Display size %dx%d", fb_width, fb_height);
 			m_screenWidth = fb_width;
 			m_screenHeight = fb_height;
 		}

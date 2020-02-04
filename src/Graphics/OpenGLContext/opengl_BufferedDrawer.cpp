@@ -7,7 +7,7 @@
 using namespace graphics;
 using namespace opengl;
 
-const u32 BufferedDrawer::m_bufMaxSize = 4194304;
+const u32 BufferedDrawer::m_bufMaxSize = 8 * 1024 * 1024; // 8 MB
 #ifndef GL_DEBUG
 const GLbitfield BufferedDrawer::m_bufAccessBits = GL_MAP_WRITE_BIT | GL_MAP_PERSISTENT_BIT | GL_MAP_COHERENT_BIT;
 const GLbitfield BufferedDrawer::m_bufMapBits = GL_MAP_WRITE_BIT | GL_MAP_PERSISTENT_BIT | GL_MAP_COHERENT_BIT;
@@ -82,10 +82,6 @@ void BufferedDrawer::_updateBuffer(Buffer & _buffer, u32 _count, u32 _dataSize, 
 
 	if (m_glInfo.bufferStorage) {
 		memcpy(&_buffer.data[_buffer.offset], _data, _dataSize);
-#ifdef GL_DEBUG
-		m_bindBuffer->bind(Parameter(_buffer.type), ObjectHandle(_buffer.handle));
-		glFlushMappedBufferRange(_buffer.type, _buffer.offset, _dataSize);
-#endif
 	} else {
 		m_bindBuffer->bind(Parameter(_buffer.type), ObjectHandle(_buffer.handle));
 		void* buffer_pointer = glMapBufferRange(_buffer.type, _buffer.offset, _dataSize, GL_MAP_WRITE_BIT | GL_MAP_UNSYNCHRONIZED_BIT);

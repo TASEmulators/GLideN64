@@ -25,7 +25,7 @@ using namespace opengl;
 ContextImpl::ContextImpl()
 	: m_clampMode(graphics::ClampMode::ClippingEnabled)
 {
-	initGLFunctions();
+
 }
 
 
@@ -423,6 +423,11 @@ graphics::ShaderProgram * ContextImpl::createTexrectCopyShader()
 	return m_specialShadersFactory->createTexrectCopyShader();
 }
 
+graphics::ShaderProgram * ContextImpl::createTexrectColorAndDepthCopyShader()
+{
+	return m_specialShadersFactory->createTexrectColorAndDepthCopyShader();
+}
+
 graphics::ShaderProgram * ContextImpl::createGammaCorrectionShader()
 {
 	return m_specialShadersFactory->createGammaCorrectionShader();
@@ -494,6 +499,10 @@ bool ContextImpl::isSupported(graphics::SpecialFeatures _feature) const
 		return m_glInfo.ext_fetch;
 	case graphics::SpecialFeatures::TextureBarrier:
 		return m_glInfo.texture_barrier || m_glInfo.texture_barrierNV;
+	case graphics::SpecialFeatures::EglImage:
+		return m_glInfo.eglImage;
+	case graphics::SpecialFeatures::EglImageFramebuffer:
+		return m_glInfo.eglImageFramebuffer;
 	}
 	return false;
 }

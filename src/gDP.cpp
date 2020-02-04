@@ -377,7 +377,7 @@ bool CheckForFrameBufferTexture(u32 _address, u32 _width, u32 _bytes)
 
 		const u32 texEndAddress = _address + _bytes - 1;
 		if (_address > pBuffer->m_startAddress &&
-			pBuffer->m_width != _width &&
+			std::abs((s32)pBuffer->m_width - (s32)_width) > 1 &&
 			texEndAddress > (pBuffer->m_endAddress + (pBuffer->m_width << pBuffer->m_size >> 1))) {
 			//fbList.removeBuffer(pBuffer->m_startAddress);
 			bRes = false;
@@ -499,9 +499,12 @@ void gDPLoadTile(u32 tile, u32 uls, u32 ult, u32 lrs, u32 lrt)
 
 	if (gDP.loadTile->masks == 0)
 		gDP.loadTile->loadWidth = max(gDP.loadTile->loadWidth, info.width);
-	if (gDP.loadTile->maskt == 0 && gDP.loadTile->tmem % gDP.loadTile->line == 0) {
-		const u16 theight = info.height + gDP.loadTile->tmem / gDP.loadTile->line;
-		gDP.loadTile->loadHeight = max(gDP.loadTile->loadHeight, theight);
+	if (gDP.loadTile->maskt == 0) {
+		if (gDP.otherMode.cycleType != G_CYC_2CYCLE && gDP.loadTile->tmem % gDP.loadTile->line == 0) {
+			u16 theight = info.height + gDP.loadTile->tmem / gDP.loadTile->line;
+			gDP.loadTile->loadHeight = max(gDP.loadTile->loadHeight, theight);
+		} else
+			gDP.loadTile->loadHeight = max(gDP.loadTile->loadHeight, info.height);
 	}
 
 	u32 address = gDP.textureImage.address + gDP.loadTile->ult * gDP.textureImage.bpl + (gDP.loadTile->uls << gDP.textureImage.size >> 1);
@@ -636,6 +639,15 @@ void gDPLoadBlock(u32 tile, u32 uls, u32 ult, u32 lrs, u32 dxt)
 
 	gDP.loadTile->frameBufferAddress = 0;
 	CheckForFrameBufferTexture(address, info.width, bytes); // Load data to TMEM even if FB texture is found. See comment to texturedRectDepthBufferCopy
+
+	const u32 texLowerBound = gDP.loadTile->tmem;
+	const u32 texUpperBound = gDP.loadTile->tmem + (bytes >> 3);
+	for (u32 i = 0; i < tile; ++i) {
+		if (gDP.tiles[i].tmem >= texLowerBound && gDP.tiles[i].tmem < texUpperBound) {
+			gDPLoadTileInfo &info = gDP.loadInfo[gDP.tiles[i].tmem];
+			info.loadType = LOADTYPE_BLOCK;
+		}
+	}
 
 	if (gDP.loadTile->size == G_IM_SIZ_32b)
 		gDPLoadBlock32(gDP.loadTile->uls, gDP.loadTile->lrs, dxt);
@@ -845,7 +857,7 @@ void gDPTextureRectangle(f32 ulx, f32 uly, f32 lrx, f32 lry, s32 tile, s16 s, s1
 	textureTileOrg[0] = gSP.textureTile[0];
 	textureTileOrg[1] = gSP.textureTile[1];
 	gSP.textureTile[0] = &gDP.tiles[tile];
-	gSP.textureTile[1] = &gDP.tiles[(tile + 1) & 7];
+	gSP.textureTile[1] = needReplaceTex1ByTex0() ? &gDP.tiles[tile] : &gDP.tiles[(tile + 1) & 7];
 
 	// HACK ALERT!
 	if (s == 0x4000 && (gDP.colorImage.width + gSP.textureTile[0]->uls < 512))
@@ -891,6 +903,7 @@ void gDPFullSync()
 	frameBufferList().updateCurrentBufferEndAddress();
 
 	FrameBuffer * pCurrentBuffer = frameBufferList().getCurrent();
+	pCurrentBuffer->copyDepthTexture();
 	if ((config.frameBufferEmulation.copyToRDRAM != Config::ctDisable || (config.generalEmulation.hacks & hack_subscreen) != 0) &&
 		!FBInfo::fbInfo.isSupported() &&
 		pCurrentBuffer != nullptr &&
@@ -944,7 +957,7 @@ void gDPLLETriangle(u32 _w1, u32 _w2, int _shade, int _texture, int _zbuffer, u3
 	textureTileOrg[0] = gSP.textureTile[0];
 	textureTileOrg[1] = gSP.textureTile[1];
 	gSP.textureTile[0] = &gDP.tiles[tile];
-	gSP.textureTile[1] = &gDP.tiles[(tile + 1) & 7];
+	gSP.textureTile[1] = needReplaceTex1ByTex0() ? &gDP.tiles[tile] : &gDP.tiles[(tile + 1) & 7];
 
 	int j;
 	int xleft, xright, xleft_inc, xright_inc;

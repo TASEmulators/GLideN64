@@ -352,6 +352,95 @@ namespace glsl {
 		}
 	};
 
+	/*---------------Hybrid texture filter-------------*/
+
+	static
+		std::string const& getHybridTextureFilter()
+	{
+		static std::string strFilter =
+			"uniform sampler2D uTex0;                                                           \n"
+			"                                                                                   \n"
+			"mediump vec2 norm2denorm(in mediump vec2 uv, in ivec2 texture_size)                \n"
+			"{                                                                                  \n"
+			"       return uv * vec2(texture_size) - 0.5;                                       \n"
+			"}                                                                                  \n"
+			"ivec2 denorm2idx(in mediump vec2 d_uv)                                             \n"
+			"{                                                                                  \n"
+			"       return ivec2(floor(d_uv));                                                  \n"
+			"}                                                                                  \n"
+			"ivec2 norm2idx(in mediump vec2 uv, in ivec2 texture_size)                          \n"
+			"{                                                                                  \n"
+			"       return denorm2idx(norm2denorm(uv, texture_size));                           \n"
+			"}                                                                                  \n"
+			"mediump vec2 idx2norm(in ivec2 idx, in ivec2 texture_size)                         \n"
+			"{                                                                                  \n"
+			"       mediump vec2 denorm_uv = vec2(idx) + 0.5;                                   \n"
+			"       return denorm_uv / vec2(texture_size);                                      \n"
+			"}                                                                                  \n"
+			"mediump vec4 texel_fetch(in ivec2 idx, in ivec2 texture_size)                      \n"
+			"{                                                                                  \n"
+			"       mediump vec2 uv = idx2norm(idx, texture_size);                              \n"
+			"       return texture2D(uTex0, uv);                                                \n"
+			"}                                                                                  \n"
+			"mediump vec4 hybridFilter(in mediump vec2 uv)                                      \n"
+			"{                                                                                  \n"
+			"       ivec2 texSize = textureSize(uTex0, 0);                                      \n"
+			"       mediump vec2 denorm_uv = norm2denorm(uv,texSize);                           \n"
+			"       ivec2 idx_low = denorm2idx(denorm_uv);                                      \n"
+			"       mediump vec2 ratio = denorm_uv - vec2(idx_low);                             \n"
+			"       ivec2 rounded_idx = idx_low + ivec2(step(0.5, ratio));                      \n"
+			"                                                                                   \n"
+			"       ivec2 idx00 = idx_low;                                                      \n"
+			"       mediump vec4 t00 = texel_fetch(idx00, texSize);                             \n"
+			"                                                                                   \n"
+			"       ivec2 idx01 = idx00 + ivec2(0, 1);                                          \n"
+			"       mediump vec4 t01 = texel_fetch(idx01, texSize);                             \n"
+			"                                                                                   \n"
+			"       ivec2 idx10 = idx00 + ivec2(1, 0);                                          \n"
+			"       mediump vec4 t10 = texel_fetch(idx10, texSize);                             \n"
+			"                                                                                   \n"
+			"       ivec2 idx11 = idx00 + ivec2(1, 1);                                          \n"
+			"       mediump vec4 t11 = texel_fetch(idx11, texSize);                             \n"
+			"                                                                                   \n"
+			"       /*                                                                          \n"
+			"       * radius is the distance from the edge where interpolation happens.         \n"
+			"       * It's calculated based on  how big a fragment is in denormalized           \n"
+			"       * texture coordinates.                                                      \n"
+			"       *                                                                           \n"
+			"       * E.g.: If a texel maps to 5 fragments, then each fragment is               \n"
+			"       * 1/5 texels big. So the smooth transition should be between one and        \n"
+			"       * two fragments big, since there are enough fragments to show the full      \n"
+			"       * color of the texel.                                                       \n"
+			"       *                                                                           \n"
+			"       * If a fragment is larger than one texel, we don't care, we're already      \n"
+			"       * sampling the wrong texels, and should be using mipmaps instead.           \n"
+			"       */                                                                          \n"
+			"                                                                                   \n"
+			"       // Here, fwidth() is used to estimte how much denorm_uv changes per fragment. \n"
+			"       // But we divide it by 2, since fwidth() is adding abs(dx) + abs(dy).       \n"
+			"       mediump vec2 fragment_size = fwidth(denorm_uv) / 2.0;                       \n"
+			"                                                                                   \n"
+			"       mediump float is_frag_gt1, radius;                                          \n"
+			"       // Do nothing if fragment is greater than 1 texel                           \n"
+			"       // Don't make the transition more than one fragment (+/- 0.5 fragment)      \n"
+			"       is_frag_gt1 = step(1.0, fragment_size.s);                                   \n"
+			"       radius = min(fragment_size.s, 0.5);                                         \n"
+			"       ratio.s = ratio.s * is_frag_gt1 + smoothstep(0.5 - radius,                  \n"
+			"           0.5 + radius,	ratio.s) * (1.0 - is_frag_gt1);                         \n"
+			"       is_frag_gt1 = step(1.0, fragment_size.t);                                   \n"
+			"       radius = min(fragment_size.t, 0.5);                                         \n"
+			"       ratio.t = ratio.t * is_frag_gt1 + smoothstep(0.5 - radius,                  \n"
+			"           0.5 + radius,	ratio.t) * (1.0 - is_frag_gt1);                         \n"
+			"                                                                                   \n"
+			"       // interpolate first on S direction then on T.                              \n"
+			"       mediump vec4 top = mix(t00, t10, ratio.s);                                  \n"
+			"       mediump vec4 bottom = mix(t01, t11, ratio.s);                               \n"
+			"       return mix(top, bottom, ratio.t);                                           \n"
+			"}                                                                                  \n"
+			;
+		return strFilter;
+	}
+
 	/*---------------TexrectCopyShaderPart-------------*/
 
 	class TexrectCopy : public ShaderPart
@@ -359,15 +448,62 @@ namespace glsl {
 	public:
 		TexrectCopy(const opengl::GLInfo & _glinfo)
 		{
-			m_part =
-				"IN mediump vec2 vTexCoord0;							\n"
-				"uniform sampler2D uTex0;								\n"
-				"OUT lowp vec4 fragColor;								\n"
-				"														\n"
-				"void main()											\n"
-				"{														\n"
-				"	fragColor = texture2D(uTex0, vTexCoord0);			\n"
-			;
+			if (_glinfo.isGLES2) {
+				m_part =
+					"IN mediump vec2 vTexCoord0;							\n"
+					"uniform sampler2D uTex0;								\n"
+					"OUT lowp vec4 fragColor;								\n"
+					"														\n"
+					"void main()											\n"
+					"{														\n"
+					"	fragColor = texture2D(uTex0, vTexCoord0);			\n"
+					;
+			} else {
+				m_part = getHybridTextureFilter();
+				m_part +=
+					"IN mediump vec2 vTexCoord0;				\n"
+					"OUT lowp vec4 fragColor;					\n"
+					"											\n"
+					"void main()								\n"
+					"{											\n"
+					"	fragColor = hybridFilter(vTexCoord0);	\n"
+					;
+			}
+		}
+	};
+
+	/*---------------TexrectDepthCopyShaderPart-------------*/
+
+	class TexrectColorAndDepthCopy : public ShaderPart
+	{
+	public:
+		TexrectColorAndDepthCopy(const opengl::GLInfo & _glinfo)
+		{
+			if (_glinfo.isGLES2) {
+				m_part =
+					"IN mediump vec2 vTexCoord0;							\n"
+					"uniform sampler2D uTex0;								\n"
+					"uniform sampler2D uTex1;								\n"
+					"OUT lowp vec4 fragColor;								\n"
+					"														\n"
+					"void main()											\n"
+					"{														\n"
+					"	fragColor = texture2D(uTex0, vTexCoord0);			\n"
+					"	gl_FragDepth = texture2D(uTex1, vTexCoord0).r;		\n"
+					;
+			} else {
+				m_part = getHybridTextureFilter();
+				m_part +=
+					"IN mediump vec2 vTexCoord0;						\n"
+					"uniform sampler2D uTex1;							\n"
+					"OUT lowp vec4 fragColor;							\n"
+					"													\n"
+					"void main()										\n"
+					"{													\n"
+					"	fragColor = hybridFilter(vTexCoord0);			\n"
+					"	gl_FragDepth = texture2D(uTex1, vTexCoord0).r;	\n"
+					;
+			}
 		}
 	};
 
@@ -539,9 +675,9 @@ namespace glsl {
 			FXAAShaderBase::activate();
 			FrameBuffer * pBuffer = frameBufferList().findBuffer(*REG.VI_ORIGIN);
 			if (pBuffer != nullptr && pBuffer->m_pTexture != nullptr &&
-				(m_width != pBuffer->m_pTexture->realWidth || m_height != pBuffer->m_pTexture->realHeight)) {
-				m_width = pBuffer->m_pTexture->realWidth;
-				m_height = pBuffer->m_pTexture->realHeight;
+				(m_width != pBuffer->m_pTexture->width || m_height != pBuffer->m_pTexture->height)) {
+				m_width = pBuffer->m_pTexture->width;
+				m_height = pBuffer->m_pTexture->height;
 				glUniform2f(m_textureSizeLoc, GLfloat(m_width), GLfloat(m_height));
 			}
 		}
@@ -664,6 +800,29 @@ namespace glsl {
 		}
 	};
 
+	/*---------------TexrectColorAndDepthCopyShader-------------*/
+
+	typedef SpecialShader<VertexShaderTexturedRect, TexrectColorAndDepthCopy> TexrectColorAndDepthCopyShaderBase;
+
+	class TexrectColorAndDepthCopyShader : public TexrectColorAndDepthCopyShaderBase
+	{
+	public:
+		TexrectColorAndDepthCopyShader(const opengl::GLInfo & _glinfo,
+			opengl::CachedUseProgram * _useProgram,
+			const ShaderPart * _vertexHeader,
+			const ShaderPart * _fragmentHeader,
+			const ShaderPart * _fragmentEnd)
+			: TexrectColorAndDepthCopyShaderBase(_glinfo, _useProgram, _vertexHeader, _fragmentHeader, _fragmentEnd)
+		{
+			m_useProgram->useProgram(m_program);
+			const int texLoc0 = glGetUniformLocation(GLuint(m_program), "uTex0");
+			glUniform1i(texLoc0, 0);
+			const int texLoc1 = glGetUniformLocation(GLuint(m_program), "uTex1");
+			glUniform1i(texLoc1, 1);
+			m_useProgram->useProgram(graphics::ObjectHandle::null);
+		}
+	};
+
 	/*---------------PostProcessorShader-------------*/
 
 	typedef SpecialShader<VertexShaderTexturedRect, GammaCorrection> GammaCorrectionShaderBase;
@@ -776,6 +935,14 @@ namespace glsl {
 	graphics::ShaderProgram * SpecialShadersFactory::createTexrectCopyShader() const
 	{
 		return new TexrectCopyShader(m_glinfo, m_useProgram, m_vertexHeader, m_fragmentHeader, m_fragmentEnd);
+	}
+
+	graphics::ShaderProgram * SpecialShadersFactory::createTexrectColorAndDepthCopyShader() const
+	{
+		if (m_glinfo.isGLES2)
+			return nullptr;
+
+		return new TexrectColorAndDepthCopyShader(m_glinfo, m_useProgram, m_vertexHeader, m_fragmentHeader, m_fragmentEnd);
 	}
 
 	graphics::ShaderProgram * SpecialShadersFactory::createGammaCorrectionShader() const

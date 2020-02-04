@@ -65,7 +65,7 @@ void ColorBufferToRDRAM::_initFBTexture(void)
 {
 	const FramebufferTextureFormats & fbTexFormat = gfxContext.getFramebufferTextureFormats();
 
-	m_pTexture = textureCache().addFrameBufferTexture(false);
+	m_pTexture = textureCache().addFrameBufferTexture(Context::EglImage ? textureTarget::TEXTURE_EXTERNAL : textureTarget::TEXTURE_2D);
 	m_pTexture->format = G_IM_FMT_RGBA;
 	m_pTexture->size = 2;
 	m_pTexture->clampS = 1;
@@ -77,24 +77,31 @@ void ColorBufferToRDRAM::_initFBTexture(void)
 	m_pTexture->mirrorT = 0;
 	//The actual VI width is not used for texture width because most texture widths
 	//cause slowdowns in the glReadPixels call, at least on Android
-	m_pTexture->realWidth = m_lastBufferWidth;
-	m_pTexture->realHeight = VI_GetMaxBufferHeight(m_lastBufferWidth);
-	m_pTexture->textureBytes = m_pTexture->realWidth * m_pTexture->realHeight * fbTexFormat.colorFormatBytes;
+	m_pTexture->width = m_lastBufferWidth;
+	m_pTexture->height = VI_GetMaxBufferHeight(m_lastBufferWidth);
+	m_pTexture->textureBytes = m_pTexture->width * m_pTexture->height * fbTexFormat.colorFormatBytes;
 
+
+	m_bufferReader.reset(gfxContext.createColorBufferReader(m_pTexture));
+
+	// Skip this since texture is initialized in the EGL color buffer reader
+	if (!Context::EglImage)
 	{
 		Context::InitTextureParams params;
 		params.handle = m_pTexture->name;
-		params.width = m_pTexture->realWidth;
-		params.height = m_pTexture->realHeight;
+		params.target = textureTarget::TEXTURE_2D;
+		params.width = m_pTexture->width;
+		params.height = m_pTexture->height;
 		params.internalFormat = fbTexFormat.colorInternalFormat;
 		params.format = fbTexFormat.colorFormat;
 		params.dataType = fbTexFormat.colorType;
 		gfxContext.init2DTexture(params);
 	}
+
 	{
 		Context::TexParameters params;
 		params.handle = m_pTexture->name;
-		params.target = textureTarget::TEXTURE_2D;
+		params.target = Context::EglImage ? textureTarget::TEXTURE_EXTERNAL : textureTarget::TEXTURE_2D;
 		params.textureUnitIndex = textureIndices::Tex[0];
 		params.minFilter = textureParameters::FILTER_LINEAR;
 		params.magFilter = textureParameters::FILTER_LINEAR;
@@ -105,7 +112,7 @@ void ColorBufferToRDRAM::_initFBTexture(void)
 		bufTarget.bufferHandle = ObjectHandle(m_FBO);
 		bufTarget.bufferTarget = bufferTarget::DRAW_FRAMEBUFFER;
 		bufTarget.attachment = bufferAttachment::COLOR_ATTACHMENT0;
-		bufTarget.textureTarget = textureTarget::TEXTURE_2D;
+		bufTarget.textureTarget = Context::EglImageFramebuffer ? textureTarget::TEXTURE_EXTERNAL : textureTarget::TEXTURE_2D;
 		bufTarget.textureHandle = m_pTexture->name;
 		gfxContext.addFrameBufferRenderTarget(bufTarget);
 	}
@@ -114,8 +121,6 @@ void ColorBufferToRDRAM::_initFBTexture(void)
 	assert(!gfxContext.isFramebufferError());
 
 	gfxContext.bindFramebuffer(graphics::bufferTarget::DRAW_FRAMEBUFFER, graphics::ObjectHandle::defaultFramebuffer);
-
-	m_bufferReader.reset(gfxContext.createColorBufferReader(m_pTexture));
 }
 
 void ColorBufferToRDRAM::_destroyFBTexure(void)
@@ -157,8 +162,8 @@ bool ColorBufferToRDRAM::_prepareCopy(u32& _startAddress)
 		return false;
 
 	if(m_pTexture == nullptr ||
-		m_pTexture->realWidth != _getRealWidth(pBuffer->m_width) ||
-		m_pTexture->realHeight != VI_GetMaxBufferHeight(_getRealWidth(pBuffer->m_width)))
+		m_pTexture->width != _getRealWidth(pBuffer->m_width) ||
+		m_pTexture->height != VI_GetMaxBufferHeight(_getRealWidth(pBuffer->m_width)))
 	{
 		_destroyFBTexure();
 
@@ -193,7 +198,7 @@ bool ColorBufferToRDRAM::_prepareCopy(u32& _startAddress)
 				x0 = (screenWidth - width) / 2;
 			}
 		} else {
-			width = m_pCurFrameBuffer->m_pTexture->realWidth;
+			width = m_pCurFrameBuffer->m_pTexture->width;
 		}
 		u32 height = (u32)(bufferHeight * m_pCurFrameBuffer->m_scale);
 
@@ -203,14 +208,14 @@ bool ColorBufferToRDRAM::_prepareCopy(u32& _startAddress)
 		blitParams.srcY0 = 0;
 		blitParams.srcX1 = x0 + width;
 		blitParams.srcY1 = height;
-		blitParams.srcWidth = pInputTexture->realWidth;
-		blitParams.srcHeight = pInputTexture->realHeight;
+		blitParams.srcWidth = pInputTexture->width;
+		blitParams.srcHeight = pInputTexture->height;
 		blitParams.dstX0 = 0;
 		blitParams.dstY0 = 0;
 		blitParams.dstX1 = m_pCurFrameBuffer->m_width;
 		blitParams.dstY1 = bufferHeight;
-		blitParams.dstWidth = m_pTexture->realWidth;
-		blitParams.dstHeight = m_pTexture->realHeight;
+		blitParams.dstWidth = m_pTexture->width;
+		blitParams.dstHeight = m_pTexture->height;
 		blitParams.filter = textureParameters::FILTER_NEAREST;
 		blitParams.tex[0] = pInputTexture;
 		blitParams.combiner = CombinerInfo::get().getTexrectCopyProgram();
@@ -323,6 +328,9 @@ void ColorBufferToRDRAM::copyToRDRAM(u32 _address, bool _sync)
 		return;
 	if (!_prepareCopy(_address))
 		return;
+	if (config.frameBufferEmulation.copyToRDRAM == Config::CopyToRDRAM::ctDisable)
+		return;
+
 	const u32 numBytes = (m_pCurFrameBuffer->m_width*m_pCurFrameBuffer->m_height) << m_pCurFrameBuffer->m_size >> 1;
 	_copy(m_pCurFrameBuffer->m_startAddress, m_pCurFrameBuffer->m_startAddress + numBytes, _sync);
 }

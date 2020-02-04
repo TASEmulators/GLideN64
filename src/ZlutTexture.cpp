@@ -26,7 +26,7 @@ void ZlutTexture::init()
 	for (u32 i = 0; i < 0x40000; ++i)
 		vecZLUT[i] = zLUT16[i];
 
-	m_pTexture = textureCache().addFrameBufferTexture(false);
+	m_pTexture = textureCache().addFrameBufferTexture(textureTarget::TEXTURE_2D);
 	m_pTexture->format = G_IM_FMT_IA;
 	m_pTexture->clampS = 1;
 	m_pTexture->clampT = 1;
@@ -35,14 +35,14 @@ void ZlutTexture::init()
 	m_pTexture->maskT = 0;
 	m_pTexture->mirrorS = 0;
 	m_pTexture->mirrorT = 0;
-	m_pTexture->realWidth = 512;
-	m_pTexture->realHeight = 512;
-	m_pTexture->textureBytes = m_pTexture->realWidth * m_pTexture->realHeight * fbTexFormats.lutFormatBytes;
+	m_pTexture->width = 512;
+	m_pTexture->height = 512;
+	m_pTexture->textureBytes = m_pTexture->width * m_pTexture->height * fbTexFormats.lutFormatBytes;
 
 	Context::InitTextureParams initParams;
 	initParams.handle = m_pTexture->name;
-	initParams.width = m_pTexture->realWidth;
-	initParams.height = m_pTexture->realHeight;
+	initParams.width = m_pTexture->width;
+	initParams.height = m_pTexture->height;
 	initParams.internalFormat = fbTexFormats.lutInternalFormat;
 	initParams.format = fbTexFormats.lutFormat;
 	initParams.dataType = fbTexFormats.lutType;
