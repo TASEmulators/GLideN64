@@ -213,7 +213,7 @@
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release_mupenplus|x64'">
     <TargetName>mupen64plus-video-GLideN64</TargetName>
-    <OutDir>..\..\..\..\output\dll\</OutDir>
+    <OutDir>..\..\..\..\Assets\dll\</OutDir>
   </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <ClCompile>
